@@ -1,0 +1,57 @@
+<Project>
+
+  <!--
+    Shared build properties. Anything that appears in more than one .csproj lives
+    here instead, so a change cannot land in two of three places.
+
+    Version: one number, one file. The assembly, the startup log line, /health,
+    / and the container label all read it from here. A version that is written
+    down in four places is wrong in three of them.
+  -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!--
+      The commit this was built from, passed in by the container build as the
+      DISTILLATE_BUILD build argument. Baked into the assembly rather than parked
+      in a label, so the running process can name its own build and
+      "which build is this?" stops being a support question.
+    -->
+    <InformationalVersion Condition="'$(DistillateBuild)' != ''">$(Version)+$(DistillateBuild)</InformationalVersion>
+
+    <!--
+      A warning in our own code fails the build; a warning in someone else's
+      package does not (NoWarn is per-project, and the gate in CI runs
+      `-warnaserror` on top of this).
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!--
+      Three recommended rules we do not enforce, each for a reason rather than
+      because they were noisy:
+
+      CA1848 / CA1873  Source-generated LoggerMessage delegates instead of
+                       ILogger extension methods. Worth doing, but it is a sweep
+                       across every logging call site and a change to how messages
+                       are templated — not something to bolt on to a first public
+                       release. Tracked in CHANGELOG under Unreleased.
+      CA1707           Underscore-prefixed primary-constructor parameters. The
+                       prefix marks them as captured fields, which is the whole
+                       point of the convention; renaming them would remove the
+                       signal.
+      CA1711           `CompletionFlag` ends in "Flag". The rule guards against
+                       suffixes that imply a shape; here the type *is* the bit
+                       flags, `[Flags]` is on it, and the name is part of the
+                       documented JSON contract (`completionFlags`).
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA1711;CA1848;CA1873</NoWarn>
+  </PropertyGroup>
+
+</Project>

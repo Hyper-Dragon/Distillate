@@ -1,0 +1,58 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Internal publish scratch (image tags, push scripts, build logs). Never part of
+# the public tree — the repository builds its own images from `Dockerfile`.
+builds/
+.buildprogress.txt
+.docker-status.txt
+.output.txt
+*.log
+
+# Local environment. `.env.example` is committed; a filled `.env` is a leak.
+.env
+
+# IDE
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+# NCrunch
+*.ncrunch*
+_NCrunch_*
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# JetBrains Rider
+*.sln.iml
+
+# Others
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Playwright browsers (we use system-installed Chromium)
+.playwright/

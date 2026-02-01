@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Distillate CI fixture</title>
+  <meta name="author" content="CI Fixture" />
+  <meta name="description" content="A minimal article used to prove the container can extract a page end to end." />
+</head>
+<body>
+  <header><nav><a href="/">Home</a> <a href="/donate">Donate</a></nav></header>
+  <article>
+    <h1>Distillate CI fixture</h1>
+    <p>
+      This page exists so the container job can prove one thing the unit tests cannot:
+      that the image, started exactly as documented, can drive a real browser, fetch a
+      page it has never seen and return reader-view output.
+    </p>
+    <p>
+      It is deliberately dull. A fixture with a paywall, a cookie wall or a consent
+      dialog would make the test a statement about that website rather than about the
+      container.
+    </p>
+    <p>
+      If this text appears in the response body, the pipeline from HTTP request to
+      Chromium to SmartReader to markdown is intact.
+    </p>
+  </article>
+  <footer><img src="/donate.png" alt="donate" width="1" height="1" /></footer>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# Normalise line endings on commit. The container builds on Linux, and a stray CRLF
+# in a shell script or the Dockerfile produces a failure that looks like anything but CRLF.
+* text=auto eol=lf
+
+*.cs        text diff=csharp
+*.csproj    text
+*.props     text
+*.targets   text
+*.sln       text eol=crlf
+*.slnx      text
+*.md        text
+*.yml       text
+*.yaml      text
+*.json      text
+*.http      text
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+.dockerignore text
+
+# Windows-only tooling keeps the endings Windows expects.
+*.ps1       text eol=crlf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.zip       binary

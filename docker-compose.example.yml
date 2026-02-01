@@ -1,0 +1,75 @@
+# A complete deployment of Distillate.
+#
+#   cp .env.example .env          # every value in it is already the default
+#   docker compose -f docker-compose.example.yml up -d
+#
+# Every variable the service reads is present below with the value the code uses
+# when the variable is absent, so nothing here is a surprise and removing a line
+# changes nothing. The two lines that are load-bearing are marked.
+
+services:
+  distillate:
+    image: ghcr.io/hyper-dragon/distillate:latest
+    container_name: distillate
+
+    # LOAD-BEARING: the port is published on the loopback address on purpose.
+    # This service fetches whatever URL it is given, from inside your network, and
+    # has no authentication. Publishing it as 8080:8080 puts an open fetcher on
+    # every interface the host has. Put a reverse proxy in front if other machines
+    # need it, and put authentication on the proxy.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      # --- Mode -------------------------------------------------------------
+      # `rest` for the JSON API, `live` for the interactive web UI. Mutually
+      # exclusive: the service runs in one mode only.
+      MODE: ${MODE:-rest}
+
+      # --- Capacity ---------------------------------------------------------
+      # No internal queue. A request that arrives at capacity is refused at once
+      # with 503 and a Retry-After naming how long to wait.
+      CONCURRENCY: ${CONCURRENCY:-1}
+      BUSY_RETRY_AFTER_SECONDS: ${BUSY_RETRY_AFTER_SECONDS:-15}
+      MAX_TIME_MS: ${MAX_TIME_MS:-180000}
+      MAX_IMAGE_BYTES: ${MAX_IMAGE_BYTES:-209715200}
+
+      # --- Browser ----------------------------------------------------------
+      GC_MODE: ${GC_MODE:-normal}
+      STABILIZATION_MS: ${STABILIZATION_MS:-10000}
+      SCROLL_DELAY_MS: ${SCROLL_DELAY_MS:-100}
+      MAX_V8_HEAP_SIZE_MB: ${MAX_V8_HEAP_SIZE_MB:-512}
+      CHROMIUM_PATH: ${CHROMIUM_PATH:-/usr/bin/chromium}
+      # CHROMIUM_ARGS: ${CHROMIUM_ARGS:-}
+
+      # --- HTTP -------------------------------------------------------------
+      PORT: ${PORT:-8080}
+      MAX_URL_LENGTH: ${MAX_URL_LENGTH:-2048}
+      # USER_AGENT: ${USER_AGENT:-}
+
+      # --- Logging ----------------------------------------------------------
+      LOG_LEVEL: ${LOG_LEVEL:-Information}
+
+    # LOAD-BEARING: an extraction can legitimately run for MAX_TIME_MS (3 minutes
+    # by default). Docker's default 10-second stop timeout kills the process in
+    # the middle of one, every time you restart the container.
+    stop_grace_period: 30s
+
+    restart: unless-stopped
+
+    # Low-power boards (Raspberry Pi 4/5, 8 GB): the defaults above already run at
+    # CONCURRENCY=1. What helps is reclaiming memory between requests and capping
+    # the browser, so uncomment the following and make sure the host has swap.
+    #
+    # environment:
+    #   GC_MODE: aggressive
+    #   MAX_V8_HEAP_SIZE_MB: 256
+    #   CHROMIUM_ARGS: "--disable-features=TranslateUI --disable-background-networking"
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 2G
+
+    # The image carries its own HEALTHCHECK, so there is nothing to declare here.
+    # If you override it, probe the body rather than the status code: any 200 is
+    # not necessarily this service's 200.
