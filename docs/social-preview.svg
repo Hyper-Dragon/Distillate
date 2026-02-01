@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="45%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="bloom" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="#101215"/>
+  <ellipse cx="640" cy="470" rx="620" ry="150" fill="url(#bloom)"/>
+
+  <rect x="80" y="104" width="220" height="8" rx="4" fill="url(#accent)"/>
+
+  <text x="80" y="248" font-family="DejaVu Sans, Segoe UI, sans-serif" font-size="92" font-weight="bold" fill="#f3f4f6">Distillate</text>
+  <text x="80" y="300" font-family="DejaVu Sans, Segoe UI, sans-serif" font-size="30" fill="#8b93a1">reader view as a service</text>
+
+  <text x="80" y="382" font-family="DejaVu Sans, Segoe UI, sans-serif" font-size="38" fill="#e5e7eb">Paste a URL. Get the article back.</text>
+
+  <!-- a page, and what comes out of it -->
+  <rect x="80" y="418" width="350" height="132" rx="14" fill="#171a1f" stroke="#232830" stroke-width="2"/>
+
+  <rect x="104" y="438" width="180" height="10" rx="5" fill="#2a3038"/>
+  <!-- the bit that gets excluded: a logo, a donate button, a consent wall -->
+  <rect x="300" y="436" width="64" height="22" rx="6" fill="#3a2226"/>
+  <rect x="104" y="464" width="290" height="8" rx="4" fill="#2a3038"/>
+  <rect x="104" y="484" width="240" height="8" rx="4" fill="#2a3038"/>
+  <rect x="104" y="504" width="300" height="8" rx="4" fill="#2a3038"/>
+  <rect x="104" y="524" width="190" height="8" rx="4" fill="#2a3038"/>
+
+  <text x="462" y="496" font-family="DejaVu Sans, Segoe UI, sans-serif" font-size="44" fill="#6b7686">&#8594;</text>
+
+  <rect x="520" y="418" width="680" height="132" rx="14" fill="#171a1f" stroke="#2b3340" stroke-width="2"/>
+
+  <rect x="548" y="438" width="160" height="10" rx="5" fill="url(#accent)"/>
+  <rect x="548" y="462" width="620" height="9" rx="4" fill="#3b4453"/>
+  <rect x="548" y="480" width="620" height="9" rx="4" fill="#3b4453"/>
+  <rect x="548" y="498" width="520" height="9" rx="4" fill="#3b4453"/>
+  <rect x="548" y="516" width="580" height="9" rx="4" fill="#3b4453"/>
+
+  <text x="80" y="600" font-family="DejaVu Sans, Segoe UI, sans-serif" font-size="24" fill="#5b6472">Chromium &#183; Readability &#183; markdown, text, images, links</text>
+  <text x="1200" y="600" font-family="DejaVu Sans, Segoe UI, sans-serif" font-size="24" fill="#5b6472" text-anchor="end">ghcr.io/hyper-dragon/distillate</text>
+</svg>

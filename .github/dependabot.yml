@@ -1,0 +1,53 @@
+# Keep the dependencies current without a manual sweep.
+#
+# NuGet updates are grouped by kind so a week's worth of patches arrives as one
+# pull request to review rather than nine to merge.
+#
+# Two notes that matter for this repository:
+#
+#  * History here is rewritten (the project keeps a single commit). A force-push
+#    closes an open pull request, so a Dependabot PR may disappear rather than get
+#    merged — check the versions in the .csproj files rather than reading the
+#    absence of a PR as "all well".
+#  * AngleSharp is pinned to the *smallest patched* version rather than the latest,
+#    because it parses untrusted HTML. Do not accept a downgrade PR for it.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      patch-and-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor
+    ignore:
+      # Playwright's package version is tied to the browser revision it downloads.
+      # A major bump changes which Chromium the image contains, which is a change
+      # to the thing being tested against — it needs a branch and a real
+      # extraction, not a merge button.
+      - dependency-name: Microsoft.Playwright
+        update-types: ["version-update:semver-major"]
+      # SkiaSharp ships native binaries per platform. A major bump is a change to
+      # the image contents on both architectures at once.
+      - dependency-name: SkiaSharp
+        update-types: ["version-update:semver-major"]
+      - dependency-name: SkiaSharp.NativeAssets.Linux
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+
+  # The .NET base images in the Dockerfile. This is the one dependency that can
+  # change the runtime under the whole service without touching a line of C#.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

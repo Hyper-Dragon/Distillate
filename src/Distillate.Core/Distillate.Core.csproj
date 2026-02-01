@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Distillate.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      1.5.0 is the first release patched for GHSA-pgww-w46g-26qg (CVE-2026-54570),
+      an mXSS that lets a sanitizer walking the parsed DOM miss markup a browser
+      will execute. Pinned at the smallest safe version on purpose.
+    -->
+    <PackageReference Include="AngleSharp" Version="1.5.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.57.0" />
+    <PackageReference Include="ReverseMarkdown" Version="5.0.0" />
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
+    <PackageReference Include="SmartReader" Version="0.11.0" />
+  </ItemGroup>
+
+</Project>
