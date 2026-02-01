@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  distillate:
+    image: distillate-web:release
+    container_name: distillate-vs
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - CONCURRENCY=1
+      - MAX_TIME_MS=180000
+      - MAX_IMAGE_BYTES=209715200
+      - GC_MODE=normal
+      - STABILIZATION_MS=10000
+      - LOG_LEVEL=Information
+      - PORT=8080
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

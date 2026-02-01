@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "docker-run: debug-compose",
+      "type": "shell",
+      "command": "docker compose -f docker-compose.debug.yml up --build -d",
+      "problemMatcher": []
+    }
+  ]
+}

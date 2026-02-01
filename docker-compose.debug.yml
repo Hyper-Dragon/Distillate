@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  distillate:
+    image: distillate-web:release
+    container_name: distillate-debug
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    restart: "no"
+    # Do not mount the project directory — this runs the image exactly as built

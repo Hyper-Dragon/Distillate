@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/Docs/">
+    <File Path="README.md" />
+    <File Path="SPEC.md" />
+  </Folder>
+  <Project Path="src/Distillate.Core/Distillate.Core.csproj" />
+  <Project Path="src/Distillate.Web/Distillate.Web.csproj" />
+  <Project Path="tests/Distillate.Tests/Distillate.Tests.csproj" />
+</Solution>

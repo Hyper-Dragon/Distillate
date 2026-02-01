@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Docker: Launch Distillate (debug image)",
+      "type": "docker",
+      "request": "launch",
+      "preLaunchTask": "docker-run: debug-compose",
+      "platform": "netCore",
+      "netCore": {
+        "appProject": "src/Distillate.Web/Distillate.Web.csproj"
+      }
+    }
+  ]
+}
