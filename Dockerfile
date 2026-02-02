@@ -1,5 +1,5 @@
 # Stage 1: Build the C# app
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
 WORKDIR /src
 
@@ -7,6 +7,7 @@ WORKDIR /src
 COPY Distillate.sln .
 COPY src/Distillate.Core/Distillate.Core.csproj src/Distillate.Core/
 COPY src/Distillate.Web/Distillate.Web.csproj src/Distillate.Web/
+COPY tests/Distillate.Tests/Distillate.Tests.csproj tests/Distillate.Tests/
 
 # Restore dependencies
 RUN dotnet restore -a $TARGETARCH
@@ -18,13 +19,13 @@ COPY src/ src/
 RUN dotnet publish src/Distillate.Web/Distillate.Web.csproj -c Release -a $TARGETARCH -o /app --no-restore
 
 # Stage 2: Final Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 # Install Tini, Chromium, and required system libs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
-    chromium \
+    chromium-browser \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
@@ -37,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
-    libasound2 \
+    libasound2t64 \
     fonts-liberation \
     fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
