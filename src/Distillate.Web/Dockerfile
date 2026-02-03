@@ -1,13 +1,41 @@
 # =========================
-# Runtime base image
+# Stage 1: Build + Playwright install
 # =========================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-WORKDIR /app
-EXPOSE 8080
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
+WORKDIR /src
 
-# Install Chromium dependencies
+COPY Distillate.sln .
+COPY src/Distillate.Core/Distillate.Core.csproj src/Distillate.Core/
+COPY src/Distillate.Web/Distillate.Web.csproj src/Distillate.Web/
+COPY tests/Distillate.Tests/Distillate.Tests.csproj tests/Distillate.Tests/
+
+RUN dotnet restore -a $TARGETARCH
+COPY src/ src/
+
+RUN dotnet build src/Distillate.Web/Distillate.Web.csproj \
+    -c Release -a $TARGETARCH --no-restore
+
+RUN dotnet tool install --global Microsoft.Playwright.CLI
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+RUN playwright install chromium
+
+RUN dotnet publish src/Distillate.Web/Distillate.Web.csproj \
+    -c Release -a $TARGETARCH -o /app --no-restore
+
+
+# =========================
+# Stage 2: Runtime
+# =========================
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+
+# System deps for non-headless Chromium (Ubuntu 24.04)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
+    chromium \
+    xvfb \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
@@ -18,74 +46,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 \
     libxrandr2 \
     libgbm1 \
+    libxfixes3 \
     libpango-1.0-0 \
     libcairo2 \
     libasound2t64 \
-    libxshmfence1 \
     fonts-liberation \
     fonts-noto-color-emoji \
-    # Additional X11/GTK libs required by chrome-headless-shell
-    libxfixes3 \
-    libxrender1 \
-    libxss1 \
-    libgtk-3-0 \
-    libxcb1 \
-    libxcursor1 \
-    libx11-6 \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy app AND Playwright browser cache
+COPY --from=build /app /app
+COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+ENV DISPLAY=:99
+
+ENV CONCURRENCY=1
+ENV MAX_TIME_MS=180000
+ENV MAX_IMAGE_BYTES=209715200
+ENV GC_MODE=normal
+ENV STABILIZATION_MS=10000
+ENV LOG_LEVEL=Information
 ENV PORT=8080
-ENTRYPOINT ["dotnet", "Distillate.Web.dll"]
 
-# =========================
-# Build + publish + Playwright install
-# =========================
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-ARG BUILD_CONFIGURATION=Release
-WORKDIR /src
+EXPOSE 8080
 
-# Copy project files and restore
-COPY ["src/Distillate.Web/Distillate.Web.csproj", "src/Distillate.Web/"]
-COPY ["src/Distillate.Core/Distillate.Core.csproj", "src/Distillate.Core/"]
-RUN dotnet restore "src/Distillate.Web/Distillate.Web.csproj"
-
-# Copy full source
-COPY . .
-
-WORKDIR /src/src/Distillate.Web
-
-# Build project into /app/build so Playwright scripts (playwright.ps1) are available
-RUN dotnet build Distillate.Web.csproj -c $BUILD_CONFIGURATION -o /app/build
-
-# Install Playwright browsers using the playwright.ps1 from build output
-WORKDIR /app/build
-RUN pwsh -c "& ./playwright.ps1 install chromium --with-deps"
-
-# Publish project for linux-x64 into /app/publish
-WORKDIR /src/src/Distillate.Web
-RUN dotnet publish Distillate.Web.csproj \
-    -c $BUILD_CONFIGURATION \
-    -r linux-x64 \
-    --self-contained false \
-    -o /app/publish
-
-# Copy Playwright browsers from build cache into publish and ensure permissions
-RUN mkdir -p /app/publish/.ms-playwright \
-    && cp -a /root/.cache/ms-playwright/* /app/publish/.ms-playwright/ 2>/dev/null || true \
-    && chmod -R a+rx /app/publish/.ms-playwright
-
-# =========================
-# Final runtime image
-# =========================
-FROM base AS final
-WORKDIR /app
-# Copy published app from build stage
-COPY --from=build /app/publish .
-# Make Playwright browsers executable if present
-RUN if [ -d "/app/.ms-playwright" ]; then chmod -R a+rx /app/.ms-playwright; fi
-
-# Point Playwright to the browsers we bundled during build and avoid runtime downloads
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.ms-playwright
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-
-ENTRYPOINT ["dotnet", "Distillate.Web.dll"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & dotnet Distillate.Web.dll"]
