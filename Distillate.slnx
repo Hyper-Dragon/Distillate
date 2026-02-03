@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/AtRoot/">
+    <File Path="Dockerfile" />
+  </Folder>
   <Folder Name="/Docs/">
     <File Path="README.md" />
     <File Path="SPEC.md" />
