@@ -1,31 +1,41 @@
-# Stage 1: Build the C# app
+# =========================
+# Stage 1: Build + Playwright install
+# =========================
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
 WORKDIR /src
 
-# Copy solution and project files
 COPY Distillate.sln .
 COPY src/Distillate.Core/Distillate.Core.csproj src/Distillate.Core/
 COPY src/Distillate.Web/Distillate.Web.csproj src/Distillate.Web/
 COPY tests/Distillate.Tests/Distillate.Tests.csproj tests/Distillate.Tests/
 
-# Restore dependencies
 RUN dotnet restore -a $TARGETARCH
-
-# Copy source code
 COPY src/ src/
 
-# Build and publish
-RUN dotnet publish src/Distillate.Web/Distillate.Web.csproj -c Release -a $TARGETARCH -o /app --no-restore
+RUN dotnet build src/Distillate.Web/Distillate.Web.csproj \
+    -c Release -a $TARGETARCH --no-restore
 
-# Stage 2: Final Runtime
+RUN dotnet tool install --global Microsoft.Playwright.CLI
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+RUN playwright install chromium
+
+RUN dotnet publish src/Distillate.Web/Distillate.Web.csproj \
+    -c Release -a $TARGETARCH -o /app --no-restore
+
+
+# =========================
+# Stage 2: Runtime
+# =========================
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
-# Install Tini, Chromium, and required system libs
+# System deps for non-headless Chromium (Ubuntu 24.04)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tini \
-    chromium-browser \
+    chromium \
+    xvfb \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
@@ -36,18 +46,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 \
     libxrandr2 \
     libgbm1 \
+    libxfixes3 \
     libpango-1.0-0 \
     libcairo2 \
     libasound2t64 \
     fonts-liberation \
     fonts-noto-color-emoji \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Playwright env vars to skip browser download
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV CHROMIUM_PATH=/usr/bin/chromium
+# Copy app AND Playwright browser cache
+COPY --from=build /app /app
+COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
 
-# Default configuration
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+ENV DISPLAY=:99
+
 ENV CONCURRENCY=1
 ENV MAX_TIME_MS=180000
 ENV MAX_IMAGE_BYTES=209715200
@@ -56,11 +70,7 @@ ENV STABILIZATION_MS=10000
 ENV LOG_LEVEL=Information
 ENV PORT=8080
 
-COPY --from=build /app .
-
-# Expose port
 EXPOSE 8080
 
-# Use tini as the entrypoint to handle signals and zombies
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["dotnet", "Distillate.Web.dll"]
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & dotnet Distillate.Web.dll"]
