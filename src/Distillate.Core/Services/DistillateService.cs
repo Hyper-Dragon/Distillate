@@ -55,25 +55,20 @@ public class DistillateService : IDistillateService
         try
         {
             if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
-            {
                 return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Invalid URL format");
-            }
 
             if (uri.Scheme != "http" && uri.Scheme != "https")
-            {
                 return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Only HTTP and HTTPS URLs are supported");
-            }
 
-            _logger.LogInformation("Processing URL: {Url} with engine: {Engine}, traceId: {TraceId}", 
+            _logger.LogInformation("Processing URL: {Url} with engine: {Engine}, traceId: {TraceId}",
                 request.Url, request.Engine, traceId);
 
             var sourceHtml = await FetchWithBrowserAsync(uri, effectiveUserAgent, effectiveStabilization, request.Cookies, linkedCts.Token);
 
             if (string.IsNullOrEmpty(sourceHtml))
-            {
                 return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Failed to fetch page content");
-            }
 
+            // --- Reader extraction ---
             var engine = _engineFactory.GetEngine(request.Engine);
             var extraction = engine.Extract(sourceHtml, uri);
 
@@ -82,60 +77,119 @@ public class DistillateService : IDistillateService
                 _logger.LogWarning("Primary engine {Engine} failed, trying fallback", engine.Name);
                 var fallbackEngine = _engineFactory.GetFallbackEngine(engine.Name);
                 extraction = fallbackEngine.Extract(sourceHtml, uri);
-                
+
                 if (extraction.Success)
-                {
                     completionFlags |= CompletionFlag.EngineFallbackUsed;
-                }
                 else
-                {
                     errors.Add($"Extraction failed: {extraction.Error}");
-                }
             }
 
-            string? cleanHtml = extraction.CleanHtml;
-            ExtractedImage[]? extractedImages = null;
+            var baseCleanHtml = extraction.CleanHtml ?? string.Empty;
 
-            if (extraction.Success && request.IncludeImages && !string.IsNullOrEmpty(cleanHtml))
+            // --- Link extraction (from source HTML) ---
+            string[]? allLinksInPage = null;
+            string[]? allLinksMedia = null;
+            string[]? allLinksAssets = null;
+
+            if (request.IncludeAllLinksInPage || request.IncludeAllLinksMedia || request.IncludeAllLinksAssets)
+            {
+                var linkResult = LinkExtractor.Extract(sourceHtml, uri);
+                if (request.IncludeAllLinksInPage) allLinksInPage = linkResult.LinksInPage;
+                if (request.IncludeAllLinksMedia)  allLinksMedia  = linkResult.LinksMedia;
+                if (request.IncludeAllLinksAssets) allLinksAssets = linkResult.LinksAssets;
+            }
+
+            // --- Resolve imageLinkRewrite implicit flag ---
+            bool effectiveIncludeInPage = request.IncludeAllInPageImages;
+            if (request.ImageLinkRewrite && !request.IncludeAllInPageImages)
+            {
+                effectiveIncludeInPage = true;
+                completionFlags |= CompletionFlag.ImageLinkRewriteImpliedInPageImages;
+            }
+
+            if (request.ImageLinkRewrite)
+                completionFlags |= CompletionFlag.ImageLinkRewriteApplied;
+
+            // --- Image processing ---
+            string? cleanHtmlEmbedded = null;
+            string? cleanHtmlLinked = null;
+            string? cleanHtmlNoImages = null;
+            ImageEntry[]? allInPageImages = null;
+            ImageEntry[]? allOutOfPageImages = null;
+
+            bool needAnyImageWork = extraction.Success && !string.IsNullOrEmpty(baseCleanHtml) &&
+                (request.IncludeCleanHtmlEmbeddedImages || request.IncludeCleanHtmlLinkedImages ||
+                 request.IncludeCleanHtmlNoImages || effectiveIncludeInPage || request.IncludeAllOutOfPageImages);
+
+            if (needAnyImageWork)
             {
                 try
                 {
                     var httpClient = _httpClientFactory.CreateClient("ImageDownloader");
-                    var embedder = new ImageEmbedder(
-                        _loggerFactory.CreateLogger<ImageEmbedder>(),
+                    var processor = new ImageProcessor(
+                        _loggerFactory.CreateLogger<ImageProcessor>(),
                         httpClient,
                         _options.MaxImageBytes);
 
-                    var embedResult = await embedder.EmbedImagesAsync(cleanHtml, uri, linkedCts.Token);
-                    cleanHtml = embedResult.Html;
-                    extractedImages = embedResult.Images.Length > 0 ? embedResult.Images : null;
+                    var imgResult = await processor.ProcessAsync(
+                        sourceHtml,
+                        baseCleanHtml,
+                        uri,
+                        needEmbedded:        request.IncludeCleanHtmlEmbeddedImages,
+                        needLinked:          request.IncludeCleanHtmlLinkedImages,
+                        needNoImages:        request.IncludeCleanHtmlNoImages,
+                        needInPageImages:    effectiveIncludeInPage,
+                        needOutOfPageImages: request.IncludeAllOutOfPageImages,
+                        imageLinkRewrite:    request.ImageLinkRewrite,
+                        pngConversionRequired: request.PngConversionRequired,
+                        linkedCts.Token);
 
-                    if (embedResult.Truncated)
-                    {
-                        completionFlags |= CompletionFlag.ImageTruncated;
-                    }
+                    cleanHtmlEmbedded    = imgResult.CleanHtmlEmbeddedImages;
+                    cleanHtmlLinked      = imgResult.CleanHtmlLinkedImages;
+                    cleanHtmlNoImages    = imgResult.CleanHtmlNoImages;
+                    allInPageImages      = imgResult.AllInPageImages;
+                    allOutOfPageImages   = imgResult.AllOutOfPageImages;
 
-                    _logger.LogDebug("Embedded {Count} images, {Bytes} bytes total",
-                        embedResult.ImagesProcessed, embedResult.TotalBytesUsed);
+                    if (imgResult.ImageTruncated)            completionFlags |= CompletionFlag.ImageTruncated;
+                    if (imgResult.AllInPageImagesPartial)    completionFlags |= CompletionFlag.AllInPageImagesPartial;
+                    if (imgResult.AllOutOfPageImagesPartial) completionFlags |= CompletionFlag.AllOutOfPageImagesPartial;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Image embedding failed");
-                    errors.Add($"Image embedding failed: {ex.Message}");
+                    _logger.LogWarning(ex, "Image processing failed");
+                    errors.Add($"Image processing failed: {ex.Message}");
                 }
             }
+            else if (request.IncludeCleanHtmlNoImages && extraction.Success)
+            {
+                // No image work needed but NoImages variant was requested and there was nothing to process
+                cleanHtmlNoImages = baseCleanHtml;
+            }
 
-            var markdown = _markdownConverter.ConvertToMarkdown(cleanHtml);
+            // --- Markdown variants ---
+            string? markdownNoImages = null;
+            string? markdownLinked = null;
 
+            if (request.IncludeMarkdownNoImages && extraction.Success)
+            {
+                var source = cleanHtmlNoImages ?? (needAnyImageWork ? null : baseCleanHtml);
+                markdownNoImages = _markdownConverter.ConvertToMarkdown(source ?? baseCleanHtml);
+            }
+
+            if (request.IncludeMarkdownLinkedImages && extraction.Success)
+            {
+                markdownLinked = _markdownConverter.ConvertToMarkdown(cleanHtmlLinked ?? baseCleanHtml);
+            }
+
+            // --- Plain text ---
+            string? plainText = request.IncludePlainText ? extraction.RawText : null;
+
+            // --- Source HTML ---
             string? responseSourceHtml = null;
             if (request.IncludeSourceHtml)
-            {
                 responseSourceHtml = sourceHtml;
-            }
             else
-            {
                 completionFlags |= CompletionFlag.SourceHtmlOmitted;
-            }
 
             stopwatch.Stop();
 
@@ -146,14 +200,21 @@ public class DistillateService : IDistillateService
                 ProcessedAt = DateTimeOffset.UtcNow,
                 ProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Title = extraction.Title,
-                RawText = extraction.RawText,
-                Markdown = markdown,
-                CleanHtml = cleanHtml,
-                SourceHtml = responseSourceHtml,
                 CompletionFlags = (int)completionFlags,
-                Images = extractedImages,
                 Errors = errors.Count > 0 ? errors.ToArray() : null,
-                TraceId = traceId
+                TraceId = traceId,
+                PlainText = plainText,
+                SourceHtml = responseSourceHtml,
+                CleanHtmlEmbeddedImages = cleanHtmlEmbedded,
+                CleanHtmlLinkedImages = cleanHtmlLinked,
+                CleanHtmlNoImages = cleanHtmlNoImages,
+                MarkdownLinkedImages = markdownLinked,
+                MarkdownNoImages = markdownNoImages,
+                AllLinksInPage = allLinksInPage,
+                AllLinksMedia = allLinksMedia,
+                AllLinksAssets = allLinksAssets,
+                AllInPageImages = allInPageImages,
+                AllOutOfPageImages = allOutOfPageImages
             };
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
@@ -169,9 +230,7 @@ public class DistillateService : IDistillateService
         finally
         {
             if (_options.IsAggressiveGc)
-            {
                 PerformAggressiveGc();
-            }
         }
     }
 
@@ -192,8 +251,6 @@ public class DistillateService : IDistillateService
                 Args = GetChromiumArgs()
             };
 
-            // Only set ExecutablePath if explicitly configured and exists
-            // Otherwise let Playwright use its bundled browser
             if (!string.IsNullOrEmpty(_options.ChromiumPath) && File.Exists(_options.ChromiumPath))
             {
                 launchOptions.ExecutablePath = _options.ChromiumPath;
@@ -236,17 +293,12 @@ public class DistillateService : IDistillateService
             });
 
             if (response == null || !response.Ok)
-            {
                 _logger.LogWarning("Page load failed with status: {Status}", response?.Status);
-            }
 
             await ScrollToBottomAsync(page, cancellationToken);
-
             await Task.Delay(stabilizationMs, cancellationToken);
 
-            var html = await page.ContentAsync();
-
-            return html;
+            return await page.ContentAsync();
         }
         catch (Exception ex)
         {
@@ -273,9 +325,7 @@ public class DistillateService : IDistillateService
         };
 
         if (!string.IsNullOrEmpty(_options.ChromiumArgs))
-        {
             args.AddRange(_options.ChromiumArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        }
 
         return args.ToArray();
     }
@@ -290,17 +340,14 @@ public class DistillateService : IDistillateService
                     const scrollHeight = document.body.scrollHeight;
                     const viewportHeight = window.innerHeight;
                     let currentPosition = 0;
-                    
                     while (currentPosition < scrollHeight) {
                         currentPosition += viewportHeight;
                         window.scrollTo(0, currentPosition);
                         await delay(" + _options.ScrollDelayMs + @");
                     }
-                    
                     window.scrollTo(0, 0);
                 }
             ";
-
             await page.EvaluateAsync(scrollScript);
         }
         catch (Exception ex)
@@ -325,8 +372,10 @@ public class DistillateService : IDistillateService
             ProcessedAt = DateTimeOffset.UtcNow,
             ProcessingTimeMs = processingTimeMs,
             CompletionFlags = 0,
-            Errors = new[] { error },
+            Errors = [error],
             TraceId = traceId
         };
     }
 }
+
+

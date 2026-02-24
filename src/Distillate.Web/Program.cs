@@ -85,7 +85,7 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapGet("/", () => Results.Ok(new
 {
     service = "Distillate",
-    version = "v1.0",
+    version = "v1.1",
     description = "Capacity-bound reader view extraction service",
     endpoints = new
     {
@@ -96,8 +96,20 @@ app.MapGet("/", () => Results.Ok(new
     {
         url = "https://example.com/article",
         engine = "readability",
-        includeImages = true,
-        includeSourceHtml = false
+        includeMarkdownNoImages = true,
+        includePlainText = true,
+        includeCleanHtmlNoImages = false,
+        includeCleanHtmlLinkedImages = false,
+        includeCleanHtmlEmbeddedImages = false,
+        includeMarkdownLinkedImages = false,
+        includeSourceHtml = false,
+        includeAllLinksInPage = false,
+        includeAllLinksMedia = false,
+        includeAllLinksAssets = false,
+        includeAllInPageImages = false,
+        includeAllOutOfPageImages = false,
+        imageLinkRewrite = false,
+        pngConversionRequired = false
     }
 }));
 
@@ -116,7 +128,7 @@ app.MapPost("/process", async (ProcessRequest request, IDistillateService servic
             ProcessedAt = DateTimeOffset.UtcNow,
             ProcessingTimeMs = 0,
             CompletionFlags = 0,
-            Errors = new[] { $"URL exceeds maximum length of {options.MaxUrlLength} characters" },
+            Errors = [$"URL exceeds maximum length of {options.MaxUrlLength} characters"],
             TraceId = traceId
         });
     }

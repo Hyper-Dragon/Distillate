@@ -10,6 +10,7 @@ namespace Distillate.Tests.Integration;
 public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly HttpClient _client;
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public ProcessEndpointTests(WebApplicationFactory<Program> factory)
     {
@@ -17,21 +18,17 @@ public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public async Task Process_InvalidUrl_ReturnsBadRequest()
+    public async Task Process_InvalidUrl_ReturnsErrorResponse()
     {
         var request = new ProcessRequest { Url = "not-a-valid-url" };
         var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
 
         var response = await _client.PostAsync("/process", content);
 
-        // The service returns 200 with Success=false for processing failures
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        
-        var responseContent = await response.Content.ReadAsStringAsync();
-        var result = JsonSerializer.Deserialize<ProcessResponse>(responseContent, new JsonSerializerOptions 
-        { 
-            PropertyNameCaseInsensitive = true 
-        });
+
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
 
         Assert.NotNull(result);
         Assert.False(result.Success);
@@ -48,11 +45,8 @@ public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var responseContent = await response.Content.ReadAsStringAsync();
-        var result = JsonSerializer.Deserialize<ProcessResponse>(responseContent, new JsonSerializerOptions 
-        { 
-            PropertyNameCaseInsensitive = true 
-        });
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
 
         Assert.NotNull(result);
         Assert.False(result.Success);
@@ -75,20 +69,15 @@ public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>
     public async Task Process_WithTraceId_ReturnsTraceId()
     {
         var request = new ProcessRequest { Url = "https://example.com" };
-        var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-
         var httpRequest = new HttpRequestMessage(HttpMethod.Post, "/process")
         {
-            Content = content
+            Content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json")
         };
         httpRequest.Headers.Add("X-Trace-Id", "test-trace-123");
 
         var response = await _client.SendAsync(httpRequest);
-        var responseContent = await response.Content.ReadAsStringAsync();
-        var result = JsonSerializer.Deserialize<ProcessResponse>(responseContent, new JsonSerializerOptions 
-        { 
-            PropertyNameCaseInsensitive = true 
-        });
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
 
         Assert.NotNull(result);
         Assert.Equal("test-trace-123", result.TraceId);
@@ -101,11 +90,8 @@ public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>
         var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
 
         var response = await _client.PostAsync("/process", content);
-        var responseContent = await response.Content.ReadAsStringAsync();
-        var result = JsonSerializer.Deserialize<ProcessResponse>(responseContent, new JsonSerializerOptions 
-        { 
-            PropertyNameCaseInsensitive = true 
-        });
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
 
         Assert.NotNull(result);
         Assert.NotNull(result.TraceId);
@@ -119,11 +105,8 @@ public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>
         var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
 
         var response = await _client.PostAsync("/process", content);
-        var responseContent = await response.Content.ReadAsStringAsync();
-        var result = JsonSerializer.Deserialize<ProcessResponse>(responseContent, new JsonSerializerOptions 
-        { 
-            PropertyNameCaseInsensitive = true 
-        });
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
 
         Assert.NotNull(result);
         Assert.Equal("https://example.com/test", result.RequestedUrl);
@@ -139,14 +122,52 @@ public class ProcessEndpointTests : IClassFixture<WebApplicationFactory<Program>
         var response = await _client.PostAsync("/process", content);
         var afterRequest = DateTimeOffset.UtcNow;
 
-        var responseContent = await response.Content.ReadAsStringAsync();
-        var result = JsonSerializer.Deserialize<ProcessResponse>(responseContent, new JsonSerializerOptions 
-        { 
-            PropertyNameCaseInsensitive = true 
-        });
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
 
         Assert.NotNull(result);
         Assert.True(result.ProcessedAt >= beforeRequest.AddSeconds(-1));
         Assert.True(result.ProcessedAt <= afterRequest.AddSeconds(1));
     }
+
+    [Fact]
+    public async Task Process_DefaultRequest_ReturnsMarkdownNoImagesAndPlainText()
+    {
+        // Default request should have markdownNoImages=true and plainText=true
+        // even if the browser fails (error response), the shape is correct
+        var request = new ProcessRequest { Url = "https://example.com" };
+        var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+
+        var response = await _client.PostAsync("/process", content);
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
+
+        Assert.NotNull(result);
+        // Regardless of success, the old fields (rawText, markdown, cleanHtml) must not appear
+        var json = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("\"rawText\"", json);
+        Assert.DoesNotContain("\"markdown\":", json);
+        Assert.DoesNotContain("\"cleanHtml\":", json);
+    }
+
+    [Fact]
+    public async Task Process_SourceHtmlOmittedFlag_SetWhenNotRequested()
+    {
+        // Must use a valid http/https URL so URL validation passes and the flag is set
+        var request = new ProcessRequest
+        {
+            Url = "https://example.com",
+            IncludeSourceHtml = false
+        };
+        var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
+
+        var response = await _client.PostAsync("/process", content);
+        var result = JsonSerializer.Deserialize<ProcessResponse>(
+            await response.Content.ReadAsStringAsync(), JsonOptions);
+
+        Assert.NotNull(result);
+        var flags = (CompletionFlag)result.CompletionFlags;
+        Assert.True(flags.HasFlag(CompletionFlag.SourceHtmlOmitted));
+    }
 }
+

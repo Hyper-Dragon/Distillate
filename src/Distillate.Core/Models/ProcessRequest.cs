@@ -10,12 +10,6 @@ public record ProcessRequest
     [JsonPropertyName("engine")]
     public string Engine { get; init; } = "readability";
 
-    [JsonPropertyName("includeImages")]
-    public bool IncludeImages { get; init; } = true;
-
-    [JsonPropertyName("includeSourceHtml")]
-    public bool IncludeSourceHtml { get; init; } = false;
-
     [JsonPropertyName("timeoutMs")]
     public int? TimeoutMs { get; init; }
 
@@ -27,6 +21,64 @@ public record ProcessRequest
 
     [JsonPropertyName("cookies")]
     public CookieEntry[]? Cookies { get; init; }
+
+    // --- Content output flags ---
+
+    [JsonPropertyName("includeSourceHtml")]
+    public bool IncludeSourceHtml { get; init; } = false;
+
+    [JsonPropertyName("includeCleanHtmlEmbeddedImages")]
+    public bool IncludeCleanHtmlEmbeddedImages { get; init; } = false;
+
+    [JsonPropertyName("includeCleanHtmlLinkedImages")]
+    public bool IncludeCleanHtmlLinkedImages { get; init; } = false;
+
+    [JsonPropertyName("includeCleanHtmlNoImages")]
+    public bool IncludeCleanHtmlNoImages { get; init; } = false;
+
+    [JsonPropertyName("includeMarkdownLinkedImages")]
+    public bool IncludeMarkdownLinkedImages { get; init; } = false;
+
+    [JsonPropertyName("includeMarkdownNoImages")]
+    public bool IncludeMarkdownNoImages { get; init; } = true;
+
+    [JsonPropertyName("includePlainText")]
+    public bool IncludePlainText { get; init; } = true;
+
+    // --- Link extraction flags ---
+
+    [JsonPropertyName("includeAllLinksInPage")]
+    public bool IncludeAllLinksInPage { get; init; } = false;
+
+    [JsonPropertyName("includeAllLinksMedia")]
+    public bool IncludeAllLinksMedia { get; init; } = false;
+
+    [JsonPropertyName("includeAllLinksAssets")]
+    public bool IncludeAllLinksAssets { get; init; } = false;
+
+    // --- Image extraction flags ---
+
+    [JsonPropertyName("includeAllInPageImages")]
+    public bool IncludeAllInPageImages { get; init; } = false;
+
+    [JsonPropertyName("includeAllOutOfPageImages")]
+    public bool IncludeAllOutOfPageImages { get; init; } = false;
+
+    // --- Image processing options ---
+
+    /// <summary>
+    /// Rewrite img src in cleanHtmlLinkedImages and markdownLinkedImages to local
+    /// filenames (image-0000.ext). Implicitly forces includeAllInPageImages=true.
+    /// </summary>
+    [JsonPropertyName("imageLinkRewrite")]
+    public bool ImageLinkRewrite { get; init; } = false;
+
+    /// <summary>
+    /// Convert all fetched images to PNG using SkiaSharp.
+    /// When false, images are returned in their original format.
+    /// </summary>
+    [JsonPropertyName("pngConversionRequired")]
+    public bool PngConversionRequired { get; init; } = false;
 }
 
 public record CookieEntry
@@ -43,3 +95,4 @@ public record CookieEntry
     [JsonPropertyName("path")]
     public string? Path { get; init; }
 }
+
