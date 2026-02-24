@@ -94,7 +94,8 @@ public class DistillateService : IDistillateService
             }
 
             string? cleanHtml = extraction.CleanHtml;
-            
+            ExtractedImage[]? extractedImages = null;
+
             if (extraction.Success && request.IncludeImages && !string.IsNullOrEmpty(cleanHtml))
             {
                 try
@@ -107,13 +108,14 @@ public class DistillateService : IDistillateService
 
                     var embedResult = await embedder.EmbedImagesAsync(cleanHtml, uri, linkedCts.Token);
                     cleanHtml = embedResult.Html;
+                    extractedImages = embedResult.Images.Length > 0 ? embedResult.Images : null;
 
                     if (embedResult.Truncated)
                     {
                         completionFlags |= CompletionFlag.ImageTruncated;
                     }
 
-                    _logger.LogDebug("Embedded {Count} images, {Bytes} bytes total", 
+                    _logger.LogDebug("Embedded {Count} images, {Bytes} bytes total",
                         embedResult.ImagesProcessed, embedResult.TotalBytesUsed);
                 }
                 catch (Exception ex)
@@ -149,6 +151,7 @@ public class DistillateService : IDistillateService
                 CleanHtml = cleanHtml,
                 SourceHtml = responseSourceHtml,
                 CompletionFlags = (int)completionFlags,
+                Images = extractedImages,
                 Errors = errors.Count > 0 ? errors.ToArray() : null,
                 TraceId = traceId
             };

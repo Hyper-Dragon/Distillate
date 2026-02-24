@@ -3,6 +3,7 @@
     <File Path="Dockerfile" />
   </Folder>
   <Folder Name="/Docs/">
+    <File Path="DistillateUsage.md" />
     <File Path="README.md" />
     <File Path="SPEC.md" />
   </Folder>

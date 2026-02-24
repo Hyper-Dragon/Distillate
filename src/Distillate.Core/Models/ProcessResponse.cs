@@ -34,11 +34,41 @@ public record ProcessResponse
     [JsonPropertyName("completionFlags")]
     public int CompletionFlags { get; init; }
 
+    [JsonPropertyName("images")]
+    public ExtractedImage[]? Images { get; init; }
+
     [JsonPropertyName("errors")]
     public string[]? Errors { get; init; }
 
     [JsonPropertyName("traceId")]
     public string? TraceId { get; init; }
+}
+
+public record ExtractedImage
+{
+    /// <summary>Original source URL of the image.</summary>
+    [JsonPropertyName("url")]
+    public string? Url { get; init; }
+
+    /// <summary>Alt text from the img element, if present.</summary>
+    [JsonPropertyName("alt")]
+    public string? Alt { get; init; }
+
+    /// <summary>MIME type of the image (e.g. image/png, image/jpeg, image/webp).</summary>
+    [JsonPropertyName("mimeType")]
+    public string? MimeType { get; init; }
+
+    /// <summary>Base64-encoded image bytes.</summary>
+    [JsonPropertyName("data")]
+    public string? Data { get; init; }
+
+    /// <summary>Size of the image in bytes.</summary>
+    [JsonPropertyName("sizeBytes")]
+    public long SizeBytes { get; init; }
+
+    /// <summary>Zero-based index of this image in the page.</summary>
+    [JsonPropertyName("index")]
+    public int Index { get; init; }
 }
 
 [Flags]

@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using AngleSharp;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
+using Distillate.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Distillate.Core.Images;
@@ -43,6 +44,7 @@ public partial class ImageEmbedder
         long totalBytesUsed = 0;
         bool truncated = false;
         int processedCount = 0;
+        var extractedImages = new List<ExtractedImage>();
 
         foreach (var img in images)
         {
@@ -53,8 +55,31 @@ public partial class ImageEmbedder
             if (string.IsNullOrEmpty(src))
                 continue;
 
+            var alt = img.GetAttribute("alt");
+            var index = extractedImages.Count;
+
+            // Already-embedded data URIs: parse and collect, no download needed
             if (src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
             {
+                var semicolon = src.IndexOf(';');
+                var comma = src.IndexOf(',');
+                if (semicolon > 5 && comma > semicolon)
+                {
+                    var mimeType = src[5..semicolon];
+                    var base64Data = src[(comma + 1)..];
+                    var bytes = Convert.TryFromBase64String(base64Data, new byte[base64Data.Length], out var written)
+                        ? written : 0;
+
+                    extractedImages.Add(new ExtractedImage
+                    {
+                        Url = null,
+                        Alt = alt,
+                        MimeType = mimeType,
+                        Data = base64Data,
+                        SizeBytes = bytes,
+                        Index = index
+                    });
+                }
                 processedCount++;
                 continue;
             }
@@ -67,8 +92,8 @@ public partial class ImageEmbedder
 
             try
             {
-                var (dataUri, byteCount) = await DownloadAndConvertToDataUriAsync(imageUri, cancellationToken);
-                
+                var (dataUri, mimeType, base64, byteCount) = await DownloadImageAsync(imageUri, cancellationToken);
+
                 if (dataUri == null)
                     continue;
 
@@ -82,6 +107,16 @@ public partial class ImageEmbedder
                 img.SetAttribute("src", dataUri);
                 totalBytesUsed += byteCount;
                 processedCount++;
+
+                extractedImages.Add(new ExtractedImage
+                {
+                    Url = imageUri.AbsoluteUri,
+                    Alt = alt,
+                    MimeType = mimeType,
+                    Data = base64,
+                    SizeBytes = byteCount,
+                    Index = index
+                });
             }
             catch (Exception ex)
             {
@@ -94,16 +129,17 @@ public partial class ImageEmbedder
             Html = document.DocumentElement.OuterHtml,
             TotalBytesUsed = totalBytesUsed,
             ImagesProcessed = processedCount,
-            Truncated = truncated
+            Truncated = truncated,
+            Images = extractedImages.ToArray()
         };
     }
 
-    private async Task<(string? DataUri, long ByteCount)> DownloadAndConvertToDataUriAsync(Uri imageUri, CancellationToken cancellationToken)
+    private async Task<(string? DataUri, string MimeType, string? Base64, long ByteCount)> DownloadImageAsync(Uri imageUri, CancellationToken cancellationToken)
     {
         using var response = await _httpClient.GetAsync(imageUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        
+
         if (!response.IsSuccessStatusCode)
-            return (null, 0);
+            return (null, string.Empty, null, 0);
 
         var contentType = response.Content.Headers.ContentType?.MediaType;
         if (string.IsNullOrEmpty(contentType))
@@ -116,34 +152,32 @@ public partial class ImageEmbedder
         if (contentLength > _maxTotalBytes)
         {
             _logger.LogDebug("Image too large: {Bytes} bytes", contentLength);
-            return (null, 0);
+            return (null, string.Empty, null, 0);
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        
+
         var bufferSize = contentLength.HasValue ? (int)Math.Min(contentLength.Value, 81920) : 81920;
         var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
-        
+
         try
         {
             using var memoryStream = new MemoryStream();
             int bytesRead;
-            
+
             while ((bytesRead = await stream.ReadAsync(buffer.AsMemory(0, bufferSize), cancellationToken)) > 0)
             {
                 await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
-                
+
                 if (memoryStream.Length > _maxTotalBytes)
-                {
-                    return (null, 0);
-                }
+                    return (null, string.Empty, null, 0);
             }
 
             var bytes = memoryStream.ToArray();
             var base64 = Convert.ToBase64String(bytes);
             var dataUri = $"data:{contentType};base64,{base64}";
-            
-            return (dataUri, bytes.Length);
+
+            return (dataUri, contentType, base64, bytes.Length);
         }
         finally
         {
@@ -158,4 +192,5 @@ public record ImageEmbedResult
     public long TotalBytesUsed { get; init; }
     public int ImagesProcessed { get; init; }
     public bool Truncated { get; init; }
+    public ExtractedImage[] Images { get; init; } = [];
 }
