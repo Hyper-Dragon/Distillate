@@ -41,9 +41,6 @@ public static partial class HtmlArticleCleaner
     // CSS selectors for elements that are structurally non-article content.
     private static readonly string[] RemoveSelectors =
     [
-        // Image captions and credits
-        "figcaption",
-
         // Asides, promos, callouts
         "aside",
         "[role='complementary']",
@@ -207,7 +204,7 @@ public static partial class HtmlArticleCleaner
         var clone = element.Clone(true) as IElement;
         if (clone == null) return string.Empty;
 
-        foreach (var media in clone.QuerySelectorAll("img, picture, source, svg, figcaption").ToList())
+        foreach (var media in clone.QuerySelectorAll("img, picture, source, svg").ToList())
             media.Remove();
 
         return clone.TextContent?.Trim() ?? string.Empty;

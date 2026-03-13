@@ -140,6 +140,24 @@ public class HtmlArticleCleanerTests
         var result = HtmlArticleCleaner.Clean(html);
 
         Assert.Contains("Text content", result);
+        // Caption-less figure (decorative) should be removed
+        Assert.DoesNotContain("photo.jpg", result);
+    }
+
+    [Fact]
+    public void Clean_PreservesFiguresWithCaptions()
+    {
+        var html = """
+            <div>
+                <figure><img src="article-photo.jpg" alt="Photo"><figcaption>A descriptive caption</figcaption></figure>
+                <p>Article content.</p>
+            </div>
+            """;
+        var result = HtmlArticleCleaner.Clean(html);
+
+        Assert.Contains("Article content", result);
+        // Figure with a caption should be kept (it's part of the article)
+        Assert.Contains("article-photo.jpg", result);
     }
 
     // ── Phase 8: Share paragraphs ──

@@ -168,6 +168,12 @@ public class DistillateService : IDistillateService
             string? markdownNoImages = null;
             string? markdownLinked = null;
 
+            // Prepend title as H1 if the article HTML doesn't already open with one
+            var titlePrefix = !string.IsNullOrWhiteSpace(extraction.Title)
+                && !articleHtml.TrimStart().StartsWith("<h1", StringComparison.OrdinalIgnoreCase)
+                ? $"# {extraction.Title}\n\n"
+                : string.Empty;
+
             if (request.IncludeMarkdownNoImages && extraction.Success)
             {
                 var source = cleanHtmlNoImages ?? (needAnyImageWork ? null : articleHtml);
@@ -178,6 +184,7 @@ public class DistillateService : IDistillateService
                 {
                     markdownNoImages = OutputCleaner.StripMarkdownImages(markdownNoImages);
                     markdownNoImages = OutputCleaner.CleanMarkdown(markdownNoImages);
+                    markdownNoImages = titlePrefix + markdownNoImages;
                 }
             }
 
@@ -185,7 +192,10 @@ public class DistillateService : IDistillateService
             {
                 markdownLinked = _markdownConverter.ConvertToMarkdown(cleanHtmlLinked ?? articleHtml);
                 if (markdownLinked != null)
+                {
                     markdownLinked = OutputCleaner.CleanMarkdown(markdownLinked);
+                    markdownLinked = titlePrefix + markdownLinked;
+                }
             }
 
             // --- Plain text ---
