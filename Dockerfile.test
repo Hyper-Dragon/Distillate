@@ -1,0 +1,73 @@
+# Test Dockerfile - stripped --platform for non-buildx builds
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH=amd64
+WORKDIR /src
+
+COPY Distillate.sln .
+COPY src/Distillate.Core/Distillate.Core.csproj src/Distillate.Core/
+COPY src/Distillate.Web/Distillate.Web.csproj src/Distillate.Web/
+COPY tests/Distillate.Tests/Distillate.Tests.csproj tests/Distillate.Tests/
+
+RUN dotnet restore -a $TARGETARCH
+COPY src/ src/
+
+RUN dotnet build src/Distillate.Web/Distillate.Web.csproj \
+    -c Release -a $TARGETARCH --no-restore
+
+RUN dotnet tool install --global Microsoft.Playwright.CLI
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+RUN playwright install chromium
+
+RUN dotnet publish src/Distillate.Web/Distillate.Web.csproj \
+    -c Release -a $TARGETARCH -o /app --no-restore
+
+
+# =========================
+# Stage 2: Runtime
+# =========================
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
+    chromium \
+    xvfb \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libxfixes3 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2t64 \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app /app
+COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+ENV DISPLAY=:99
+
+ENV CONCURRENCY=1
+ENV MAX_TIME_MS=180000
+ENV MAX_IMAGE_BYTES=209715200
+ENV GC_MODE=normal
+ENV STABILIZATION_MS=10000
+ENV LOG_LEVEL=Information
+ENV PORT=8080
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & dotnet Distillate.Web.dll"]

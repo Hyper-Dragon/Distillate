@@ -1,0 +1,1 @@
+tail: cannot open '/tmp/distillate-build.log' for reading: No such file or directory

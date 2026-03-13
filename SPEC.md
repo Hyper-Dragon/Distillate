@@ -27,9 +27,9 @@ The coarse `includeImages` / `includeSourceHtml` booleans are replaced by a gran
 
 ## Core Design Principles
 
-* No internal queuing — capacity limits are explicit and enforced at request time.
-* Deterministic failure — if the service cannot process a request immediately, it says so.
-* Fail-fast browser execution — pathological pages may crash the browser, and that is acceptable.
+* No internal queuing ï¿½ capacity limits are explicit and enforced at request time.
+* Deterministic failure ï¿½ if the service cannot process a request immediately, it says so.
+* Fail-fast browser execution ï¿½ pathological pages may crash the browser, and that is acceptable.
 * Memory is treated as a leased resource, aggressively reclaimed between requests.
 * The JSON response contract is stable; errors are data, not protocol.
 
@@ -181,8 +181,8 @@ POST /process
 
 | Condition | Pattern |
 |---|---|
-| `pngConversionRequired=false` | `image-0000.jpg`, `image-0001.webp`, … (extension from HTTP response MIME type) |
-| `pngConversionRequired=true` | `image-0000.png`, `image-0001.png`, … |
+| `pngConversionRequired=false` | `image-0000.jpg`, `image-0001.webp`, ï¿½ (extension from HTTP response MIME type) |
+| `pngConversionRequired=true` | `image-0000.png`, `image-0001.png`, ï¿½ |
 
 The `localName` field on each `ImageEntry` is the authoritative filename. Downstream tooling is responsible for saving files using that name.
 
@@ -230,14 +230,14 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 
 | Field | Type | Null when | Description |
 |-------|------|-----------|-------------|
-| success | bool | — | false if extraction failed |
-| requestedUrl | string | — | Echo of input URL |
-| processedAt | DateTimeOffset | — | UTC timestamp of completion |
-| processingTimeMs | double | — | Wall-clock processing time |
+| success | bool | ï¿½ | false if extraction failed |
+| requestedUrl | string | ï¿½ | Echo of input URL |
+| processedAt | DateTimeOffset | ï¿½ | UTC timestamp of completion |
+| processingTimeMs | double | ï¿½ | Wall-clock processing time |
 | title | string? | extraction failed | Page title from reader engine |
-| completionFlags | int | — | Bitmask (see below) |
+| completionFlags | int | ï¿½ | Bitmask (see below) |
 | errors | string[]? | no errors | Structured error messages |
-| traceId | string? | — | Trace ID, echoed or auto-generated |
+| traceId | string? | ï¿½ | Trace ID, echoed or auto-generated |
 | plainText | string? | not requested | Plain text from reader engine |
 | sourceHtml | string? | not requested | Raw browser HTML |
 | cleanHtmlEmbeddedImages | string? | not requested | Clean HTML, images as data URIs |
@@ -331,7 +331,7 @@ Browser fetch ? sourceHtml captured
      ?
      ??? Reader engine extraction
               ?
-              ??? cleanHtml (base — absolute URLs, no image processing)
+              ??? cleanHtml (base ï¿½ absolute URLs, no image processing)
               ?       ?
               ?       ??? cleanHtmlNoImages       (strip <img> elements)
               ?       ??? cleanHtmlLinkedImages   (rewrite src ? localName)
@@ -452,7 +452,7 @@ Distillate is a deterministic extraction service, not a platform.
 
 ## Summary
 
-Distillate v1.0 is a deliberately conservative, operationally honest service. It trades peak throughput for correctness, stability, and clarity—especially on constrained ARM systems.
+Distillate v1.0 is a deliberately conservative, operationally honest service. It trades peak throughput for correctness, stability, and clarityï¿½especially on constrained ARM systems.
 
 If the service accepts your request, it will genuinely try to fulfill it.
 If it cannot, it will tell you immediately.

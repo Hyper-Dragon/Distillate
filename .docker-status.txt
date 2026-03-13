@@ -1,0 +1,23 @@
+REPOSITORY                   TAG                           IMAGE ID       CREATED         SIZE
+stluis/home                  jellyfin-amd64-260312004355   25ab4e7c9105   23 hours ago    1GB
+stluis/home                  jellyfin-amd64-260312005334   25ab4e7c9105   23 hours ago    1GB
+stluis/home                  jellyfin-amd64-260312005557   25ab4e7c9105   23 hours ago    1GB
+ghcr.io/ggml-org/llama.cpp   server-cuda                   9d3ff64fddea   9 days ago      2.77GB
+amir20/dozzle                latest                        7354893fe60f   10 days ago     58.5MB
+debian                       bookworm-slim                 61cd928eb3ec   2 weeks ago     74.8MB
+tailscale/tailscale          latest                        b738c7015b63   4 weeks ago     108MB
+stluis/home                  cronicle-260204181430         bbbf60e263e7   5 weeks ago     511MB
+nicolaka/netshoot            latest                        9d3fca2526e3   2 months ago    609MB
+traefik/whoami               latest                        6fee7566e427   12 months ago   7.16MB
+portainer/agent              2.21.5                        b997d2809266   14 months ago   216MB
+nvidia/cuda                  12.3.0-base-ubuntu22.04       db8ca5080b06   2 years ago     243MB
+===SEPARATOR===
+CONTAINER ID   IMAGE                               COMMAND                  CREATED      STATUS                         PORTS                                             NAMES
+8626cde06584   portainer/agent:2.21.5              "./agent"                8 days ago   Up 22 seconds                                                                    portainer-agent
+b74e33c9dd11   stluis/home:cronicle-260204181430   "/usr/bin/dumb-init …"   8 days ago   Restarting (0) 5 seconds ago                                                     cronicle
+2800d3a83576   nicolaka/netshoot                   "tail -f /dev/null"      8 days ago   Up 22 seconds                                                                    debug-fleetdock-004
+b75260374b32   amir20/dozzle:latest                "/dozzle"                8 days ago   Up 22 seconds                  8080/tcp                                          dozzle-fleetdock-004
+439c08325aca   traefik/whoami                      "/whoami --port=80 -…"   8 days ago   Up 22 seconds                  80/tcp                                            whoami-fleetdock-004
+ee4afa37a186   tailscale/tailscale:latest          "/usr/local/bin/cont…"   8 days ago   Up 22 seconds                  0.0.0.0:41641->41641/udp, [::]:41641->41641/udp   ts-mesh-fleetdock-004
+===SEPARATOR===
+NO_LOG
