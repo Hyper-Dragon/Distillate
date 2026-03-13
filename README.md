@@ -7,6 +7,7 @@ A capacity-bound, synchronous HTTP service that extracts "reader view" content f
 - **Honest Backpressure**: No internal queuing. If the service is at capacity, it returns 503 immediately.
 - **Real Browser Rendering**: Uses Playwright with system-installed Chromium for JavaScript-heavy pages.
 - **SmartReader Engine**: Uses Mozilla Readability.js port (same algorithm as Firefox Reader View) with DOM-based post-processing.
+- **Article Metadata**: Extracts byline, author, excerpt, site name, language, publication date, featured image, and estimated reading time.
 - **Image Embedding**: Converts images to base64 data URIs with configurable memory budget.
 - **Markdown Output**: Clean markdown conversion for note-taking and archival.
 - **ARM Optimized**: Designed for Raspberry Pi and other low-power ARM systems.
@@ -46,7 +47,7 @@ curl http://localhost:8080/health
 All configuration is done via environment variables:
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| -------- | ------- | ----------- |
 | `CONCURRENCY` | 1 | Max simultaneous requests |
 | `MAX_TIME_MS` | 180000 | Request timeout (3 minutes) |
 | `MAX_IMAGE_BYTES` | 209715200 | Image budget (200MB) |
@@ -64,16 +65,20 @@ See [SPEC.md](SPEC.md) for complete documentation.
 Process a URL and extract reader view content.
 
 **Request:**
+
 ```json
 {
   "url": "https://example.com/article",
   "engine": "smartreader",
+  "includePlainText": true,
   "includeMarkdownNoImages": true,
-  "includePlainText": true
+  "includeCleanHtmlNoImages": false,
+  "includeSourceHtml": false
 }
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -81,10 +86,18 @@ Process a URL and extract reader view content.
   "processedAt": "2024-01-15T10:30:00Z",
   "processingTimeMs": 1523.5,
   "title": "Article Title",
-  "completionFlags": 2,
-  "traceId": "abc123",
+  "byline": "By Jane Doe",
+  "author": "Jane Doe",
+  "excerpt": "A brief summary of the article.",
+  "siteName": "Example News",
+  "language": "en",
+  "publicationDate": "2024-01-15T00:00:00",
+  "featuredImage": "https://example.com/hero.jpg",
+  "timeToRead": "00:05:00",
   "plainText": "Plain text content...",
-  "markdownNoImages": "# Article Title\n\nContent..."
+  "markdownNoImages": "# Article Title\n\nContent...",
+  "completionFlags": 2,
+  "traceId": "abc123"
 }
 ```
 

@@ -95,6 +95,61 @@ public class ProcessResponseTests
     }
 
     [Fact]
+    public void ProcessResponse_MetadataFields_CanBePopulated()
+    {
+        var response = new ProcessResponse
+        {
+            Success = true,
+            RequestedUrl = "https://example.com",
+            ProcessedAt = DateTimeOffset.UtcNow,
+            ProcessingTimeMs = 1000,
+            Title = "Test Article",
+            Byline = "John Doe",
+            Author = "John Doe",
+            Excerpt = "A brief summary of the article.",
+            SiteName = "Example News",
+            Language = "en",
+            PublicationDate = new DateTime(2026, 3, 12),
+            FeaturedImage = "https://example.com/hero.jpg",
+            TimeToRead = "00:05:00",
+            CompletionFlags = 0,
+            TraceId = "meta-test"
+        };
+
+        Assert.Equal("John Doe", response.Byline);
+        Assert.Equal("John Doe", response.Author);
+        Assert.Equal("A brief summary of the article.", response.Excerpt);
+        Assert.Equal("Example News", response.SiteName);
+        Assert.Equal("en", response.Language);
+        Assert.Equal(new DateTime(2026, 3, 12), response.PublicationDate);
+        Assert.Equal("https://example.com/hero.jpg", response.FeaturedImage);
+        Assert.Equal("00:05:00", response.TimeToRead);
+    }
+
+    [Fact]
+    public void ProcessResponse_MetadataFields_AreNullByDefault()
+    {
+        var response = new ProcessResponse
+        {
+            Success = true,
+            RequestedUrl = "https://example.com",
+            ProcessedAt = DateTimeOffset.UtcNow,
+            ProcessingTimeMs = 100,
+            CompletionFlags = 0,
+            TraceId = "default-test"
+        };
+
+        Assert.Null(response.Byline);
+        Assert.Null(response.Author);
+        Assert.Null(response.Excerpt);
+        Assert.Null(response.SiteName);
+        Assert.Null(response.Language);
+        Assert.Null(response.PublicationDate);
+        Assert.Null(response.FeaturedImage);
+        Assert.Null(response.TimeToRead);
+    }
+
+    [Fact]
     public void ImageEntry_LocalName_FollowsNamingConvention()
     {
         var entry = new ImageEntry

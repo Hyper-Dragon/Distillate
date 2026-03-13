@@ -14,7 +14,7 @@ The container installs Chromium via `apt` as `/usr/bin/chromium`. The code defau
 ## Quick Reference
 
 | Item | Value |
-|---|---|
+| --- | --- |
 | Production Dockerfile | `Dockerfile` (requires `docker buildx`) |
 | Test/Dev Dockerfile | `Dockerfile.test` (works without buildx) |
 | Internal port | `8080` |
@@ -59,7 +59,7 @@ docker run -d --name distillate-test -p 8888:8080 distillate-test:latest
 All configuration is via environment variables. Override defaults with `-e` flags on `docker run`:
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `CONCURRENCY` | `1` | Max concurrent processing requests (503 backpressure when full) |
 | `MAX_TIME_MS` | `180000` | Max processing time per request (ms) |
 | `MAX_IMAGE_BYTES` | `209715200` | Max total image bytes per request (~200 MB) |
@@ -91,7 +91,8 @@ docker logs distillate-test
 ```
 
 Startup is healthy when the logs show:
-```
+
+```text
 Distillate listening on port 8080
 Now listening on: http://0.0.0.0:8080
 Application started.

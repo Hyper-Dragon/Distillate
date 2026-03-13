@@ -18,10 +18,18 @@ public class SmartReaderEngine : IReaderEngine
     {
         try
         {
-            var reader = new Reader(baseUri.AbsoluteUri, html);
+            var reader = new Reader(baseUri.AbsoluteUri, html)
+            {
+                // Widen candidate pool to capture more content nodes
+                NTopCandidates = 10,
+                // Always return best-effort content even if confidence is low
+                ContinueIfNotReadable = true,
+                // Keep classes to allow downstream HtmlArticleCleaner CSS-selector cleanup
+                KeepClasses = true,
+            };
             var article = reader.GetArticle();
 
-            if (!article.IsReadable)
+            if (!article.IsReadable && string.IsNullOrWhiteSpace(article.Content))
             {
                 return new ExtractionResult
                 {
@@ -35,7 +43,15 @@ public class SmartReaderEngine : IReaderEngine
                 Success = true,
                 Title = article.Title,
                 CleanHtml = article.Content,
-                RawText = article.TextContent?.Trim()
+                RawText = article.TextContent?.Trim(),
+                Byline = article.Byline,
+                Author = article.Author,
+                Excerpt = article.Excerpt,
+                SiteName = article.SiteName,
+                Language = article.Language,
+                PublicationDate = article.PublicationDate,
+                FeaturedImage = article.FeaturedImage,
+                TimeToRead = article.TimeToRead,
             };
         }
         catch (Exception ex)
