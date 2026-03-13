@@ -15,7 +15,7 @@ This is not a crawler, queue, or batch processor. It is a sharp, truthful tool.
 The coarse `includeImages` / `includeSourceHtml` booleans are replaced by a granular, per-output inclusion model. Each distinct output is opt-in. The old `markdown`, `cleanHtml`, `rawText`, and `images` response fields are retired in favour of named variants. All changes are breaking; no backward-compatibility shims.
 
 | v1.0 Field/Flag | v1.1 Replacement |
-|---|---|
+| --- | --- |
 | `includeImages` (request) | `includeCleanHtmlEmbeddedImages` |
 | `includeSourceHtml` (request) | `includeSourceHtml` (unchanged) |
 | `rawText` (response) | `plainText` |
@@ -52,7 +52,7 @@ The coarse `includeImages` / `includeSourceHtml` booleans are replaced by a gran
 
 ## Project Structure
 
-```
+```text
 Distillate/
 |   src/
 |   --- Distillate.Core/           # Domain models, extraction logic, services
@@ -91,11 +91,12 @@ The init system is mandatory to prevent Chromium zombie processes from exhaustin
 
 ### Health Check
 
-```
+```text
 GET /health
 ```
 
 Returns:
+
 ```json
 {
   "status": "healthy",
@@ -109,7 +110,7 @@ Returns:
 
 ### Process Endpoint
 
-```
+```text
 POST /process
 ```
 
@@ -148,7 +149,7 @@ POST /process
 ```
 
 | Field | Type | Default | Description |
-|-------|------|---------|-------------|
+| ----- | ---- | ------- | ----------- |
 | url | string | required | URL to process (http/https only) |
 | engine | string | "smartreader" | Reader engine (only "smartreader" is supported) |
 | timeoutMs | int? | null | Override timeout (capped by server max) |
@@ -179,7 +180,7 @@ POST /process
 **Local filename scheme:**
 
 | Condition | Pattern |
-|---|---|
+| --- | --- |
 | `pngConversionRequired=false` | `image-0000.jpg`, `image-0001.webp`, � (extension from HTTP response MIME type) |
 | `pngConversionRequired=true` | `image-0000.png`, `image-0001.png`, � |
 
@@ -196,6 +197,14 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
   "processedAt": "2024-01-15T10:30:00Z",
   "processingTimeMs": 1523.5,
   "title": "Article Title",
+  "byline": "By Jane Doe",
+  "author": "Jane Doe",
+  "excerpt": "A brief summary of the article content.",
+  "siteName": "Example News",
+  "language": "en",
+  "publicationDate": "2024-01-15T00:00:00",
+  "featuredImage": "https://example.com/hero.jpg",
+  "timeToRead": "00:05:00",
   "completionFlags": 0,
   "errors": null,
   "traceId": "abc123def456",
@@ -228,13 +237,21 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 ```
 
 | Field | Type | Null when | Description |
-|-------|------|-----------|-------------|
+| ----- | ---- | --------- | ----------- |
 | success | bool | � | false if extraction failed |
 | requestedUrl | string | � | Echo of input URL |
 | processedAt | DateTimeOffset | � | UTC timestamp of completion |
 | processingTimeMs | double | � | Wall-clock processing time |
 | title | string? | extraction failed | Page title from reader engine |
-| completionFlags | int | � | Bitmask (see below) |
+| byline | string? | not available | Byline text (e.g. "By Jane Doe") from reader engine |
+| author | string? | not available | Author name extracted by reader engine |
+| excerpt | string? | not available | Short summary/description from article metadata |
+| siteName | string? | not available | Name of the originating site |
+| language | string? | not available | Article language (e.g. "en") |
+| publicationDate | DateTime? | not available | Publication date extracted from article metadata |
+| featuredImage | string? | not available | URL of the article's featured/hero image |
+| timeToRead | string | — | Estimated reading time (TimeSpan format, e.g. "00:05:00") |
+| completionFlags | int | — | Bitmask (see below) |
 | errors | string[]? | no errors | Structured error messages |
 | traceId | string? | � | Trace ID, echoed or auto-generated |
 | plainText | string? | not requested | Plain text from reader engine |
@@ -253,7 +270,7 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 #### ImageEntry
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----- | ---- | ----------- |
 | index | int | Zero-based, unique per source URL within its array |
 | localName | string | Authoritative filename: image-{index:D4}.{ext} |
 | originalUrl | string? | Absolute source URL |
@@ -265,7 +282,7 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 #### Headers
 
 | Header | Purpose |
-|--------|---------|
+| ------ | ------- |
 | X-Trace-Id | Optional trace ID for distributed tracing (auto-generated if not provided) |
 
 ### Backpressure Behavior
@@ -281,7 +298,7 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 ## Configuration (Environment Variables)
 
 | Name | Default | Description |
-|------|---------|-------------|
+| ---- | ------- | ----------- |
 | CONCURRENCY | 1 | Max simultaneous requests |
 | MAX_TIME_MS | 180000 | Hard timeout per request (3 minutes) |
 | MAX_IMAGE_BYTES | 209715200 | Global image embedding budget (200MB) |
@@ -321,7 +338,7 @@ This ensures images and hydrated content are present.
 
 ## Processing Pipeline
 
-```
+```mermaid
 Browser fetch ? sourceHtml captured
      ?
      ??? allLinksInPage   (deduplicated <a href> from sourceHtml)
@@ -383,7 +400,7 @@ This is intentionally "anti-throughput" in favor of deterministic memory recover
 ## CompletionFlags (Bitmask)
 
 | Value | Flag | Description |
-|-------|------|-------------|
+| ----- | ---- | ----------- |
 | 0 | Complete | Processing completed successfully |
 | 1 | ImageTruncated | Image budget exceeded during embedding |
 | 2 | SourceHtmlOmitted | includeSourceHtml was false |

@@ -19,6 +19,30 @@ public record ProcessResponse
     [JsonPropertyName("title")]
     public string? Title { get; init; }
 
+    [JsonPropertyName("byline")]
+    public string? Byline { get; init; }
+
+    [JsonPropertyName("author")]
+    public string? Author { get; init; }
+
+    [JsonPropertyName("excerpt")]
+    public string? Excerpt { get; init; }
+
+    [JsonPropertyName("siteName")]
+    public string? SiteName { get; init; }
+
+    [JsonPropertyName("language")]
+    public string? Language { get; init; }
+
+    [JsonPropertyName("publicationDate")]
+    public DateTime? PublicationDate { get; init; }
+
+    [JsonPropertyName("featuredImage")]
+    public string? FeaturedImage { get; init; }
+
+    [JsonPropertyName("timeToRead")]
+    public string? TimeToRead { get; init; }
+
     [JsonPropertyName("completionFlags")]
     public int CompletionFlags { get; init; }
 

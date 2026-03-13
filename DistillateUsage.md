@@ -5,6 +5,7 @@
 Distillate is a capacity-bound, synchronous HTTP service that retrieves a URL using a real browser engine, extracts a high-quality "reader view" representation, and returns structured outputs suitable for archival, note-taking, and offline use.
 
 **Key characteristics:**
+
 - **Honest backpressure** � if the service cannot process your request immediately, it tells you (HTTP 503).
 - **No internal queuing** � capacity limits are explicit and enforced at request time.
 - **Deterministic failure** � errors are returned as structured JSON data, not protocol errors.
@@ -15,7 +16,7 @@ Distillate is a capacity-bound, synchronous HTTP service that retrieves a URL us
 ## Endpoints
 
 | Method | Path | Description |
-|--------|------|-------------|
+| ------ | ---- | ----------- |
 | GET | `/` | Service info and usage hint |
 | GET | `/health` | Health check with concurrency status |
 | POST | `/process` | Extract reader view from a URL |
@@ -31,11 +32,13 @@ Distillate enforces a **strict concurrency limit** (default: 1 simultaneous requ
 - **If no slot is available**: the service returns **HTTP 503 Service Unavailable** immediately. No waiting, no queuing.
 
 This design ensures:
+
 - Predictable response times.
 - No request pile-up or memory exhaustion under load.
 - Clients can implement their own retry/backoff logic.
 
 **Recommended client behavior:**
+
 - On HTTP 503, wait and retry with exponential backoff.
 - Do not flood the service with parallel requests.
 
@@ -46,8 +49,9 @@ This design ensures:
 ### POST /process
 
 **Headers:**
+
 | Header | Required | Description |
-|--------|----------|-------------|
+| ------ | -------- | ----------- |
 | Content-Type | Yes | Must be `application/json` |
 | X-Trace-Id | No | Optional trace ID for distributed tracing (auto-generated if not provided) |
 
@@ -57,8 +61,15 @@ This design ensures:
 {
   "url": "https://example.com/article",
   "engine": "smartreader",
-  "includeImages": true,
+  "includePlainText": true,
+  "includeMarkdownNoImages": true,
+  "includeCleanHtmlNoImages": false,
+  "includeCleanHtmlEmbeddedImages": false,
+  "includeCleanHtmlLinkedImages": false,
+  "includeMarkdownLinkedImages": false,
   "includeSourceHtml": false,
+  "includeAllInPageImages": false,
+  "includeAllOutOfPageImages": false,
   "timeoutMs": 60000,
   "stabilizationMs": 5000,
   "userAgent": "Custom/1.0",
@@ -74,11 +85,20 @@ This design ensures:
 ```
 
 | Field | Type | Default | Description |
-|-------|------|---------|-------------|
+| ----- | ---- | ------- | ----------- |
 | url | string | **required** | URL to process (http/https only) |
 | engine | string | "smartreader" | Reader engine (only `"smartreader"` is supported) |
-| includeImages | boolean | true | Embed images as base64 data URIs in output |
-| includeSourceHtml | boolean | false | Include raw source HTML (for debugging) |
+| includePlainText | bool | true | Include plain text output |
+| includeMarkdownNoImages | bool | true | Include markdown with images stripped |
+| includeMarkdownLinkedImages | bool | false | Include markdown with image local filenames |
+| includeCleanHtmlNoImages | bool | false | Include clean HTML with images stripped |
+| includeCleanHtmlEmbeddedImages | bool | false | Include clean HTML with images as data URIs |
+| includeCleanHtmlLinkedImages | bool | false | Include clean HTML with image local filenames |
+| includeSourceHtml | bool | false | Include raw source HTML (for debugging) |
+| includeAllInPageImages | bool | false | Include images found in reader-extracted HTML |
+| includeAllOutOfPageImages | bool | false | Include images in source but not in reader HTML |
+| imageLinkRewrite | bool | false | Rewrite img src to local filenames (implies includeAllInPageImages) |
+| pngConversionRequired | bool | false | Convert all images to PNG |
 | timeoutMs | int | null | Override timeout (capped by server max) |
 | stabilizationMs | int | null | Override DOM stabilization delay |
 | userAgent | string | null | Override User-Agent |
@@ -97,9 +117,17 @@ This design ensures:
   "processedAt": "2024-01-15T10:30:00Z",
   "processingTimeMs": 1523.5,
   "title": "Article Title",
-  "rawText": "Plain text content...",
-  "markdown": "# Article Title\n\nContent...",
-  "cleanHtml": "<h1>Article Title</h1><p>Content...</p>",
+  "byline": "By Jane Doe",
+  "author": "Jane Doe",
+  "excerpt": "A brief summary of the article content.",
+  "siteName": "Example News",
+  "language": "en",
+  "publicationDate": "2024-01-15T00:00:00",
+  "featuredImage": "https://example.com/hero.jpg",
+  "timeToRead": "00:05:00",
+  "plainText": "Plain text content...",
+  "markdownNoImages": "# Article Title\n\nContent...",
+  "cleanHtmlNoImages": null,
   "sourceHtml": null,
   "completionFlags": 0,
   "errors": null,
@@ -122,6 +150,7 @@ This design ensures:
 ```
 
 **Backpressure response (HTTP 503):**
+
 - No body � the service is at capacity.
 - Retry with exponential backoff.
 
@@ -132,11 +161,15 @@ This design ensures:
 The `completionFlags` field is a bitmask indicating processing status:
 
 | Value | Flag | Description |
-|-------|------|-------------|
+| ----- | ---- | ----------- |
 | 0 | Complete | Processing completed successfully |
-| 1 | ImageTruncated | Image budget exceeded, some images omitted |
-| 2 | SourceHtmlOmitted | Source HTML not included (default behavior) |
+| 1 | ImageTruncated | Image budget exceeded during embedding |
+| 2 | SourceHtmlOmitted | includeSourceHtml was false |
 | 4 | _Reserved_ | _(was EngineFallbackUsed — removed)_ |
+| 8 | ImageLinkRewriteApplied | imageLinkRewrite=true rewrites were applied |
+| 16 | ImageLinkRewriteImpliedInPageImages | imageLinkRewrite implicitly forced includeAllInPageImages=true |
+| 32 | AllInPageImagesPartial | One or more in-page images could not be fetched or decoded |
+| 64 | AllOutOfPageImagesPartial | One or more out-of-page images could not be fetched or decoded |
 
 Flags can be combined (e.g., `9` = ImageTruncated + ImageLinkRewriteApplied).
 
@@ -151,6 +184,7 @@ curl http://localhost:8080/health
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -176,8 +210,8 @@ curl -X POST http://localhost:8080/process \
   -d '{
     "url": "https://example.com/article",
     "engine": "smartreader",
-    "includeImages": false,
-    "includeSourceHtml": false
+    "includePlainText": true,
+    "includeMarkdownNoImages": true
   }'
 ```
 
@@ -190,7 +224,7 @@ curl -X POST http://localhost:8080/process \
   -d '{
     "url": "https://example.com/article",
     "engine": "smartreader",
-    "includeImages": true,
+    "includeCleanHtmlEmbeddedImages": true,
     "includeSourceHtml": true,
     "timeoutMs": 60000,
     "stabilizationMs": 5000,
@@ -226,8 +260,8 @@ curl -X POST http://localhost:8080/process \
 $body = @{
     url = "https://example.com/article"
     engine = "smartreader"
-    includeImages = $false
-    includeSourceHtml = $false
+    includePlainText = $true
+    includeMarkdownNoImages = $true
 } | ConvertTo-Json
 
 # Disable Expect: 100-continue (can cause issues with some servers)
@@ -241,7 +275,9 @@ $response = Invoke-RestMethod -Uri 'http://localhost:8080/process' `
 # Access response fields
 $response.success
 $response.title
-$response.markdown
+$response.markdownNoImages
+$response.author
+$response.timeToRead
 ```
 
 ---
@@ -262,7 +298,7 @@ def extract_article(url, max_retries=5):
     for attempt in range(max_retries):
         response = requests.post(
             'http://localhost:8080/process',
-            json={'url': url, 'includeImages': False}
+            json={'url': url, 'includePlainText': True, 'includeMarkdownNoImages': True}
         )
         
         if response.status_code == 503:
@@ -302,7 +338,7 @@ fi
 These are configured on the server side, not by clients:
 
 | Name | Default | Description |
-|------|---------|-------------|
+| ---- | ------- | ----------- |
 | CONCURRENCY | 1 | Max simultaneous requests |
 | MAX_TIME_MS | 180000 | Hard timeout per request (3 minutes) |
 | MAX_IMAGE_BYTES | 209715200 | Global image embedding budget (200MB) |
