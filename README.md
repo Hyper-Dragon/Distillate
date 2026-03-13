@@ -68,8 +68,8 @@ Process a URL and extract reader view content.
 {
   "url": "https://example.com/article",
   "engine": "smartreader",
-  "includeImages": true,
-  "includeSourceHtml": false
+  "includeMarkdownNoImages": true,
+  "includePlainText": true
 }
 ```
 
@@ -81,11 +81,10 @@ Process a URL and extract reader view content.
   "processedAt": "2024-01-15T10:30:00Z",
   "processingTimeMs": 1523.5,
   "title": "Article Title",
-  "rawText": "Plain text content...",
-  "markdown": "# Article Title\n\nContent...",
-  "cleanHtml": "<h1>Article Title</h1>...",
-  "completionFlags": 0,
-  "traceId": "abc123"
+  "completionFlags": 2,
+  "traceId": "abc123",
+  "plainText": "Plain text content...",
+  "markdownNoImages": "# Article Title\n\nContent..."
 }
 ```
 

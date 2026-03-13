@@ -110,6 +110,8 @@ curl -X POST http://localhost:<HOST_PORT>/process \
   }'
 ```
 
+See [TEST-URLS.md](TEST-URLS.md) for a curated list of URLs for quality testing.
+
 ## Stop & Clean Up
 
 ```bash

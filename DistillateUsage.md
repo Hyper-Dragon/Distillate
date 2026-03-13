@@ -57,8 +57,6 @@ This design ensures:
 {
   "url": "https://example.com/article",
   "engine": "smartreader",
-  "includeImages": true,
-  "includeSourceHtml": false,
   "timeoutMs": 60000,
   "stabilizationMs": 5000,
   "userAgent": "Custom/1.0",
@@ -69,7 +67,21 @@ This design ensures:
       "domain": "example.com",
       "path": "/"
     }
-  ]
+  ],
+  "includeSourceHtml": false,
+  "includeCleanHtmlEmbeddedImages": false,
+  "includeCleanHtmlLinkedImages": false,
+  "includeCleanHtmlNoImages": false,
+  "includeMarkdownLinkedImages": false,
+  "includeMarkdownNoImages": true,
+  "includePlainText": true,
+  "includeAllLinksInPage": false,
+  "includeAllLinksMedia": false,
+  "includeAllLinksAssets": false,
+  "includeAllInPageImages": false,
+  "includeAllOutOfPageImages": false,
+  "imageLinkRewrite": false,
+  "pngConversionRequired": false
 }
 ```
 
@@ -77,12 +89,24 @@ This design ensures:
 |-------|------|---------|-------------|
 | url | string | **required** | URL to process (http/https only) |
 | engine | string | "smartreader" | Reader engine (only `"smartreader"` is supported) |
-| includeImages | boolean | true | Embed images as base64 data URIs in output |
-| includeSourceHtml | boolean | false | Include raw source HTML (for debugging) |
 | timeoutMs | int | null | Override timeout (capped by server max) |
 | stabilizationMs | int | null | Override DOM stabilization delay |
 | userAgent | string | null | Override User-Agent |
 | cookies | array | null | Cookies to set before navigation |
+| includeSourceHtml | bool | false | Raw browser-captured HTML before reader extraction |
+| includeCleanHtmlEmbeddedImages | bool | false | Reader HTML with images inlined as base64 data URIs |
+| includeCleanHtmlLinkedImages | bool | false | Reader HTML with images as local filenames |
+| includeCleanHtmlNoImages | bool | false | Reader HTML with all img elements stripped |
+| includeMarkdownLinkedImages | bool | false | Markdown with image references as local filenames |
+| includeMarkdownNoImages | bool | true | Markdown with image references stripped (default output) |
+| includePlainText | bool | true | Plain text extracted from the article (default output) |
+| includeAllLinksInPage | bool | false | Deduplicated href URLs from source HTML |
+| includeAllLinksMedia | bool | false | Deduplicated img/video/source URLs from source HTML |
+| includeAllLinksAssets | bool | false | Deduplicated CSS/JS asset URLs from source HTML |
+| includeAllInPageImages | bool | false | Images present in the reader-extracted clean HTML |
+| includeAllOutOfPageImages | bool | false | Images found in source HTML but absent from clean HTML |
+| imageLinkRewrite | bool | false | Rewrite img src in linked outputs to local filenames |
+| pngConversionRequired | bool | false | Convert all fetched images to PNG via SkiaSharp |
 
 ---
 
@@ -97,13 +121,21 @@ This design ensures:
   "processedAt": "2024-01-15T10:30:00Z",
   "processingTimeMs": 1523.5,
   "title": "Article Title",
-  "rawText": "Plain text content...",
-  "markdown": "# Article Title\n\nContent...",
-  "cleanHtml": "<h1>Article Title</h1><p>Content...</p>",
-  "sourceHtml": null,
-  "completionFlags": 0,
+  "completionFlags": 2,
   "errors": null,
-  "traceId": "abc123def456"
+  "traceId": "abc123def456",
+  "plainText": "Plain text content...",
+  "sourceHtml": null,
+  "cleanHtmlEmbeddedImages": null,
+  "cleanHtmlLinkedImages": null,
+  "cleanHtmlNoImages": null,
+  "markdownLinkedImages": null,
+  "markdownNoImages": "# Article Title\n\nContent...",
+  "allLinksInPage": null,
+  "allLinksMedia": null,
+  "allLinksAssets": null,
+  "allInPageImages": null,
+  "allOutOfPageImages": null
 }
 ```
 
@@ -133,12 +165,18 @@ The `completionFlags` field is a bitmask indicating processing status:
 
 | Value | Flag | Description |
 |-------|------|-------------|
-| 0 | Complete | Processing completed successfully |
+| 0 | Complete | Processing completed with no informational flags |
 | 1 | ImageTruncated | Image budget exceeded, some images omitted |
-| 2 | SourceHtmlOmitted | Source HTML not included (default behavior) |
+| 2 | SourceHtmlOmitted | includeSourceHtml was false (default behaviour) |
 | 4 | _Reserved_ | _(was EngineFallbackUsed — removed)_ |
+| 8 | ImageLinkRewriteApplied | imageLinkRewrite=true rewrites were applied |
+| 16 | ImageLinkRewriteImpliedInPageImages | imageLinkRewrite implicitly forced includeAllInPageImages=true |
+| 32 | AllInPageImagesPartial | One or more in-page images could not be fetched |
+| 64 | AllOutOfPageImagesPartial | One or more out-of-page images could not be fetched |
 
-Flags can be combined (e.g., `9` = ImageTruncated + ImageLinkRewriteApplied).
+Flags are combined with bitwise OR (e.g., `9` = ImageTruncated + ImageLinkRewriteApplied).
+
+The default request (no `includeSourceHtml`) always produces `completionFlags: 2` on success.
 
 ---
 
@@ -175,9 +213,8 @@ curl -X POST http://localhost:8080/process \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/article",
-    "engine": "smartreader",
-    "includeImages": false,
-    "includeSourceHtml": false
+    "includeMarkdownNoImages": true,
+    "includePlainText": true
   }'
 ```
 
@@ -190,8 +227,16 @@ curl -X POST http://localhost:8080/process \
   -d '{
     "url": "https://example.com/article",
     "engine": "smartreader",
-    "includeImages": true,
     "includeSourceHtml": true,
+    "includeCleanHtmlEmbeddedImages": true,
+    "includeCleanHtmlLinkedImages": true,
+    "includeCleanHtmlNoImages": true,
+    "includeMarkdownLinkedImages": true,
+    "includeMarkdownNoImages": true,
+    "includePlainText": true,
+    "includeAllLinksInPage": true,
+    "includeAllLinksMedia": true,
+    "includeAllInPageImages": true,
     "timeoutMs": 60000,
     "stabilizationMs": 5000,
     "userAgent": "MyApp/1.0",
@@ -226,8 +271,8 @@ curl -X POST http://localhost:8080/process \
 $body = @{
     url = "https://example.com/article"
     engine = "smartreader"
-    includeImages = $false
-    includeSourceHtml = $false
+    includeMarkdownNoImages = $true
+    includePlainText = $true
 } | ConvertTo-Json
 
 # Disable Expect: 100-continue (can cause issues with some servers)
@@ -241,7 +286,8 @@ $response = Invoke-RestMethod -Uri 'http://localhost:8080/process' `
 # Access response fields
 $response.success
 $response.title
-$response.markdown
+$response.markdownNoImages
+$response.plainText
 ```
 
 ---
@@ -262,7 +308,7 @@ def extract_article(url, max_retries=5):
     for attempt in range(max_retries):
         response = requests.post(
             'http://localhost:8080/process',
-            json={'url': url, 'includeImages': False}
+            json={'url': url, 'includeMarkdownNoImages': True, 'includePlainText': True}
         )
         
         if response.status_code == 503:
