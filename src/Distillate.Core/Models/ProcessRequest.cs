@@ -79,6 +79,15 @@ public record ProcessRequest
     /// </summary>
     [JsonPropertyName("pngConversionRequired")]
     public bool PngConversionRequired { get; init; } = false;
+
+    /// <summary>
+    /// When true, a debugInfo object is included in the response containing
+    /// per-stage wall-clock timings and a log of every image fetch (URL, outcome,
+    /// HTTP status, bytes, ms). Useful for diagnosing slow or hanging requests.
+    /// Default false — no overhead when not requested.
+    /// </summary>
+    [JsonPropertyName("includeDebugInfo")]
+    public bool IncludeDebugInfo { get; init; } = false;
 }
 
 public record CookieEntry

@@ -93,6 +93,11 @@ public record ProcessResponse
 
     [JsonPropertyName("allOutOfPageImages")]
     public ImageEntry[]? AllOutOfPageImages { get; init; }
+
+    // --- Debug ---
+
+    [JsonPropertyName("debugInfo")]
+    public DebugInfo? DebugInfo { get; init; }
 }
 
 public record ImageEntry

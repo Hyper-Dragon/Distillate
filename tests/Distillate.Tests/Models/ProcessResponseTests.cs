@@ -33,6 +33,7 @@ public class ProcessResponseTests
         Assert.Null(response.AllLinksAssets);
         Assert.Null(response.AllInPageImages);
         Assert.Null(response.AllOutOfPageImages);
+        Assert.Null(response.DebugInfo);
         Assert.Equal(0, response.CompletionFlags);
     }
 

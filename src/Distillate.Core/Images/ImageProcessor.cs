@@ -70,6 +70,7 @@ public class ImageProcessor
         bool needOutOfPageImages,
         bool imageLinkRewrite,
         bool pngConversionRequired,
+        List<ImageFetchLog>? imageFetchLog,
         CancellationToken cancellationToken)
     {
         // --- Parse clean HTML and collect unique in-page image URLs in document order ---
@@ -122,7 +123,7 @@ public class ImageProcessor
         if (needInPageImages && inPageUrlToEntry.Count > 0)
         {
             (inPageFetched, inPagePartial) = await FetchImagesAsync(
-                inPageUrlToEntry, pngConversionRequired, cancellationToken);
+                inPageUrlToEntry, pngConversionRequired, "inPage", imageFetchLog, cancellationToken);
             inPageImages = inPageFetched.Values.OrderBy(e => e.Index).ToArray();
         }
 
@@ -133,7 +134,7 @@ public class ImageProcessor
         if (needOutOfPageImages && outOfPageUrlToEntry.Count > 0)
         {
             var (fetched, partial) = await FetchImagesAsync(
-                outOfPageUrlToEntry, pngConversionRequired, cancellationToken);
+                outOfPageUrlToEntry, pngConversionRequired, "outOfPage", imageFetchLog, cancellationToken);
             outOfPageImages = fetched.Values.OrderBy(e => e.Index).ToArray();
             outOfPagePartial = partial;
         }
@@ -173,7 +174,7 @@ public class ImageProcessor
             if (needEmbedded)
             {
                 var doc = parser.ParseDocument(cleanHtml);
-                (htmlEmbedded, imageTruncated) = await EmbedImagesAsync(doc, baseUri, cancellationToken);
+                (htmlEmbedded, imageTruncated) = await EmbedImagesAsync(doc, baseUri, imageFetchLog, cancellationToken);
             }
         }
 
@@ -218,6 +219,8 @@ public class ImageProcessor
     private async Task<(Dictionary<string, ImageEntry> Entries, bool Partial)> FetchImagesAsync(
         Dictionary<string, (int Index, string? Alt)> urlToEntry,
         bool pngConversionRequired,
+        string pool,
+        List<ImageFetchLog>? fetchLog,
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, ImageEntry>(StringComparer.OrdinalIgnoreCase);
@@ -230,7 +233,7 @@ public class ImageProcessor
 
             try
             {
-                var entry = await FetchSingleImageAsync(url, index, alt, pngConversionRequired, cancellationToken);
+                var entry = await FetchSingleImageAsync(url, index, alt, pngConversionRequired, pool, fetchLog, cancellationToken);
                 if (entry != null)
                     result[url] = entry;
                 else
@@ -239,6 +242,7 @@ public class ImageProcessor
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to fetch image: {Url}", url);
+                fetchLog?.Add(new ImageFetchLog { Url = url, Pool = pool, Outcome = "exception", Ms = 0 });
                 partial = true;
             }
         }
@@ -251,6 +255,8 @@ public class ImageProcessor
         int index,
         string? alt,
         bool pngConversionRequired,
+        string pool,
+        List<ImageFetchLog>? fetchLog,
         CancellationToken cancellationToken)
     {
         // Independent per-image timeout: abandons tracking pixels, stalled CDN responses,
@@ -258,13 +264,21 @@ public class ImageProcessor
         using var perImageCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         perImageCts.CancelAfter(PerImageTimeoutMs);
         var token = perImageCts.Token;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
 
         using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
         if (!response.IsSuccessStatusCode)
+        {
+            fetchLog?.Add(new ImageFetchLog
+            {
+                Url = url, Pool = pool, Outcome = "httpError",
+                HttpStatus = (int)response.StatusCode, Ms = sw.Elapsed.TotalMilliseconds
+            });
             return null;
+        }
 
         var mimeType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
         if (string.IsNullOrEmpty(mimeType))
@@ -307,6 +321,14 @@ public class ImageProcessor
             ? ".png"
             : ExtensionByMime.GetValueOrDefault(outputMime, ".bin");
 
+        fetchLog?.Add(new ImageFetchLog
+        {
+            Url = url, Pool = pool, Outcome = "ok",
+            HttpStatus = (int)response.StatusCode,
+            Bytes = outputBytes.Length,
+            Ms = sw.Elapsed.TotalMilliseconds
+        });
+
         return new ImageEntry
         {
             Index = index,
@@ -321,7 +343,13 @@ public class ImageProcessor
         } // end try
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            sw.Stop();
             _logger.LogDebug("Image fetch timed out after {Ms}ms: {Url}", PerImageTimeoutMs, url);
+            fetchLog?.Add(new ImageFetchLog
+            {
+                Url = url, Pool = pool, Outcome = "timeout",
+                Ms = sw.Elapsed.TotalMilliseconds
+            });
             return null;
         }
     }
@@ -378,6 +406,7 @@ public class ImageProcessor
     private async Task<(string Html, bool Truncated)> EmbedImagesAsync(
         IDocument document,
         Uri baseUri,
+        List<ImageFetchLog>? fetchLog,
         CancellationToken cancellationToken)
     {
         long totalBytes = 0;
@@ -399,12 +428,20 @@ public class ImageProcessor
             using var perImageCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             perImageCts.CancelAfter(PerImageTimeoutMs);
             var imageToken = perImageCts.Token;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 using var response = await _httpClient.GetAsync(abs, HttpCompletionOption.ResponseHeadersRead, imageToken);
                 if (!response.IsSuccessStatusCode)
+                {
+                    fetchLog?.Add(new ImageFetchLog
+                    {
+                        Url = abs.AbsoluteUri, Pool = "embed", Outcome = "httpError",
+                        HttpStatus = (int)response.StatusCode, Ms = sw.Elapsed.TotalMilliseconds
+                    });
                     continue;
+                }
 
                 var mimeType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
                 if (string.IsNullOrEmpty(mimeType))
@@ -430,6 +467,11 @@ public class ImageProcessor
                 var bytes = memStream.ToArray();
                 if (totalBytes + bytes.Length > _maxEmbedBytes)
                 {
+                    fetchLog?.Add(new ImageFetchLog
+                    {
+                        Url = abs.AbsoluteUri, Pool = "embed", Outcome = "skipped",
+                        Bytes = bytes.Length, Ms = sw.Elapsed.TotalMilliseconds
+                    });
                     truncated = true;
                     break;
                 }
@@ -437,14 +479,30 @@ public class ImageProcessor
                 totalBytes += bytes.Length;
                 var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
                 img.SetAttribute("src", dataUri);
+                fetchLog?.Add(new ImageFetchLog
+                {
+                    Url = abs.AbsoluteUri, Pool = "embed", Outcome = "ok",
+                    HttpStatus = (int)response.StatusCode, Bytes = bytes.Length,
+                    Ms = sw.Elapsed.TotalMilliseconds
+                });
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 _logger.LogDebug("Image embed timed out after {Ms}ms: {Url}", PerImageTimeoutMs, abs);
+                fetchLog?.Add(new ImageFetchLog
+                {
+                    Url = abs.AbsoluteUri, Pool = "embed", Outcome = "timeout",
+                    Ms = sw.Elapsed.TotalMilliseconds
+                });
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to embed image: {Url}", abs);
+                fetchLog?.Add(new ImageFetchLog
+                {
+                    Url = abs.AbsoluteUri, Pool = "embed", Outcome = "exception",
+                    Ms = sw.Elapsed.TotalMilliseconds
+                });
             }
         }
 

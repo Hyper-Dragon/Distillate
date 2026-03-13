@@ -36,6 +36,9 @@ public class ProcessRequestTests
         Assert.False(request.IncludeAllOutOfPageImages);
         Assert.False(request.ImageLinkRewrite);
         Assert.False(request.PngConversionRequired);
+
+        // Debug flag
+        Assert.False(request.IncludeDebugInfo);
     }
 
     [Fact]

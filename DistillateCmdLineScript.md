@@ -9,12 +9,21 @@ This command line script is a bash script that interacts with the Distillate API
 set -u
 # Exit on error only where we explicitly want to; capture failures from curl separately
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <article-url>"
+DEBUG_FLAG=false
+URL=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --debug) DEBUG_FLAG=true ;;
+    *)       URL="$arg" ;;
+  esac
+done
+
+if [ -z "$URL" ]; then
+  echo "Usage: $0 [--debug] <article-url>"
   exit 2
 fi
 
-URL="$1"
 API="http://localhost:8888/process"
 
 # Dependencies check
@@ -42,12 +51,13 @@ read -r -d '' PAYLOAD <<JSON || true
   "includeAllInPageImages": true,
   "includeAllOutOfPageImages": true,
   "imageLinkRewrite": true,
-  "pngConversionRequired": false
+  "pngConversionRequired": false,
+  "includeDebugInfo": ${DEBUG_FLAG}
 }
 JSON
 
 tmp_resp="$(mktemp --suffix=.json)"
-http_code=$(curl -s -w "%{http_code}" -o "$tmp_resp" -X POST "$API" \
+http_code=$(curl -s --max-time 300 -w "%{http_code}" -o "$tmp_resp" -X POST "$API" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD")
 
@@ -177,6 +187,12 @@ process_image_array() {
 
 process_image_array "allInPageImages"
 process_image_array "allOutOfPageImages"
+
+# Debug info: write to file if present
+if jq -e '.debugInfo != null' "$resp" >/dev/null 2>&1; then
+  jq '.debugInfo' "$resp" > "$dir/debug_info.json"
+  echo "WROTE: $dir/debug_info.json"
+fi
 
 # Build a concise missing-fields report (unique)
 if [ -f "$dir/missing_fields.txt" ]; then

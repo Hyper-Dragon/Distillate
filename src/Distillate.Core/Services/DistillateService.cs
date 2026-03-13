@@ -52,6 +52,11 @@ public class DistillateService : IDistillateService
         using var timeoutCts = new CancellationTokenSource(effectiveTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
+        List<StageTiming>? stages = request.IncludeDebugInfo ? new() : null;
+        List<ImageFetchLog>? imageFetchLog = request.IncludeDebugInfo ? new() : null;
+        int debugSourceHtmlBytes = 0;
+        int debugCleanHtmlBytes = 0;
+
         try
         {
             if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
@@ -63,14 +68,21 @@ public class DistillateService : IDistillateService
             _logger.LogInformation("Processing URL: {Url} with engine: {Engine}, traceId: {TraceId}",
                 request.Url, request.Engine, traceId);
 
+            var browserTimer = Stopwatch.StartNew();
             var sourceHtml = await FetchWithBrowserAsync(uri, effectiveUserAgent, effectiveStabilization, request.Cookies, linkedCts.Token);
+            browserTimer.Stop();
+            stages?.Add(new StageTiming { Stage = "BrowserFetch", Ms = browserTimer.Elapsed.TotalMilliseconds });
+            debugSourceHtmlBytes = sourceHtml?.Length ?? 0;
 
             if (string.IsNullOrEmpty(sourceHtml))
                 return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Failed to fetch page content");
 
             // --- Reader extraction (SmartReader — Mozilla Readability port) ---
+            var extractionTimer = Stopwatch.StartNew();
             var engine = _engineFactory.GetEngine();
             var extraction = engine.Extract(sourceHtml, uri);
+            extractionTimer.Stop();
+            stages?.Add(new StageTiming { Stage = "Extraction", Ms = extractionTimer.Elapsed.TotalMilliseconds });
 
             if (!extraction.Success)
                 errors.Add($"Extraction failed: {extraction.Error}");
@@ -80,9 +92,13 @@ public class DistillateService : IDistillateService
             // --- DOM-level article cleaning (structural, not regex) ---
             // This is the key quality step: clean the HTML using semantic/structural
             // rules before producing any downstream output. Like Firefox Reader View.
+            var cleaningTimer = Stopwatch.StartNew();
             var articleHtml = string.IsNullOrEmpty(baseCleanHtml)
                 ? baseCleanHtml
                 : HtmlArticleCleaner.Clean(baseCleanHtml);
+            cleaningTimer.Stop();
+            stages?.Add(new StageTiming { Stage = "HtmlCleaning", Ms = cleaningTimer.Elapsed.TotalMilliseconds });
+            debugCleanHtmlBytes = articleHtml?.Length ?? 0;
 
             // --- Link extraction (from source HTML) ---
             string[]? allLinksInPage = null;
@@ -129,6 +145,7 @@ public class DistillateService : IDistillateService
                         httpClient,
                         _options.MaxImageBytes);
 
+                    var imageTimer = Stopwatch.StartNew();
                     var imgResult = await processor.ProcessAsync(
                         sourceHtml,
                         articleHtml,
@@ -140,7 +157,10 @@ public class DistillateService : IDistillateService
                         needOutOfPageImages: request.IncludeAllOutOfPageImages,
                         imageLinkRewrite:    request.ImageLinkRewrite,
                         pngConversionRequired: request.PngConversionRequired,
+                        imageFetchLog,
                         linkedCts.Token);
+                    imageTimer.Stop();
+                    stages?.Add(new StageTiming { Stage = "ImageProcessing", Ms = imageTimer.Elapsed.TotalMilliseconds });
 
                     cleanHtmlEmbedded    = imgResult.CleanHtmlEmbeddedImages;
                     cleanHtmlLinked      = imgResult.CleanHtmlLinkedImages;
@@ -165,6 +185,7 @@ public class DistillateService : IDistillateService
             }
 
             // --- Markdown variants ---
+            var markdownTimer = Stopwatch.StartNew();
             string? markdownNoImages = null;
             string? markdownLinked = null;
 
@@ -200,9 +221,13 @@ public class DistillateService : IDistillateService
                 }
             }
 
+            markdownTimer.Stop();
+            stages?.Add(new StageTiming { Stage = "MarkdownConversion", Ms = markdownTimer.Elapsed.TotalMilliseconds });
+
             // Featured image fallback: when markdownLinkedImages is requested but the article
             // body contains no images, inject the featured/hero image under the title heading
             // and add it to allInPageImages so the caller receives it as a downloadable file.
+            var featuredTimer = Stopwatch.StartNew();
             if (request.IncludeMarkdownLinkedImages
                 && markdownLinked != null
                 && !string.IsNullOrWhiteSpace(extraction.FeaturedImage)
@@ -219,6 +244,12 @@ public class DistillateService : IDistillateService
                     {
                         var mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
                         var bytes = await response.Content.ReadAsByteArrayAsync(featuredCts.Token);
+                        imageFetchLog?.Add(new ImageFetchLog
+                        {
+                            Url = extraction.FeaturedImage!, Pool = "featured", Outcome = "ok",
+                            HttpStatus = (int)response.StatusCode, Bytes = bytes.Length,
+                            Ms = featuredTimer.Elapsed.TotalMilliseconds
+                        });
                         var ext = ImageProcessor.GetExtensionForMime(mimeType);
                         var localName = $"image-0000{ext}";
                         allInPageImages =
@@ -237,12 +268,24 @@ public class DistillateService : IDistillateService
                         markdownLinked = OutputCleaner.InjectFeaturedImageAfterTitle(
                             markdownLinked, $"![{extraction.Title ?? ""}]({localName})");
                     }
+                    else
+                    {
+                        imageFetchLog?.Add(new ImageFetchLog
+                        {
+                            Url = extraction.FeaturedImage!, Pool = "featured", Outcome = "httpError",
+                            HttpStatus = (int)response.StatusCode,
+                            Ms = featuredTimer.Elapsed.TotalMilliseconds
+                        });
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex, "Failed to fetch featured image: {Url}", extraction.FeaturedImage);
+                    imageFetchLog?.Add(new ImageFetchLog { Url = extraction.FeaturedImage!, Pool = "featured", Outcome = "exception", Ms = 0 });
                 }
             }
+            featuredTimer.Stop();
+            stages?.Add(new StageTiming { Stage = "FeaturedImageFetch", Ms = featuredTimer.Elapsed.TotalMilliseconds });
 
             // --- Plain text ---
             // Generate from cleaned HTML with proper block-level separation,
@@ -250,7 +293,10 @@ public class DistillateService : IDistillateService
             string? plainText = null;
             if (request.IncludePlainText && extraction.Success && !string.IsNullOrEmpty(articleHtml))
             {
+                var plainTextTimer = Stopwatch.StartNew();
                 plainText = HtmlArticleCleaner.ExtractPlainText(baseCleanHtml);
+                plainTextTimer.Stop();
+                stages?.Add(new StageTiming { Stage = "PlainText", Ms = plainTextTimer.Elapsed.TotalMilliseconds });
             }
 
             // --- Source HTML ---
@@ -291,7 +337,14 @@ public class DistillateService : IDistillateService
                 AllLinksMedia = allLinksMedia,
                 AllLinksAssets = allLinksAssets,
                 AllInPageImages = allInPageImages,
-                AllOutOfPageImages = allOutOfPageImages
+                AllOutOfPageImages = allOutOfPageImages,
+                DebugInfo = request.IncludeDebugInfo ? new DebugInfo
+                {
+                    Stages = stages?.ToArray() ?? [],
+                    ImageFetches = imageFetchLog?.ToArray() ?? [],
+                    SourceHtmlBytes = debugSourceHtmlBytes,
+                    CleanHtmlBytes = debugCleanHtmlBytes
+                } : null
             };
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
