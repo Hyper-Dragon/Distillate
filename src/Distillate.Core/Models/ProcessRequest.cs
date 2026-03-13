@@ -8,7 +8,7 @@ public record ProcessRequest
     public required string Url { get; init; }
 
     [JsonPropertyName("engine")]
-    public string Engine { get; init; } = "readability";
+    public string Engine { get; init; } = "smartreader";
 
     [JsonPropertyName("timeoutMs")]
     public int? TimeoutMs { get; init; }

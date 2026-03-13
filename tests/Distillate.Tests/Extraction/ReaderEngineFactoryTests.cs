@@ -11,59 +11,25 @@ public class ReaderEngineFactoryTests
 
     public ReaderEngineFactoryTests()
     {
-        var readabilityLogger = Mock.Of<ILogger<ReadabilityEngine>>();
         var smartReaderLogger = Mock.Of<ILogger<SmartReaderEngine>>();
-        _factory = new ReaderEngineFactory(readabilityLogger, smartReaderLogger);
+        _factory = new ReaderEngineFactory(smartReaderLogger);
     }
 
-    [Theory]
-    [InlineData("readability")]
-    [InlineData("Readability")]
-    [InlineData("READABILITY")]
-    public void GetEngine_Readability_ReturnsReadabilityEngine(string engineName)
+    [Fact]
+    public void GetEngine_ReturnsSmartReaderEngine()
     {
-        var engine = _factory.GetEngine(engineName);
-        
-        Assert.IsType<ReadabilityEngine>(engine);
-        Assert.Equal("readability", engine.Name);
-    }
+        var engine = _factory.GetEngine();
 
-    [Theory]
-    [InlineData("smartreader")]
-    [InlineData("SmartReader")]
-    [InlineData("SMARTREADER")]
-    public void GetEngine_SmartReader_ReturnsSmartReaderEngine(string engineName)
-    {
-        var engine = _factory.GetEngine(engineName);
-        
         Assert.IsType<SmartReaderEngine>(engine);
         Assert.Equal("smartreader", engine.Name);
     }
 
-    [Theory]
-    [InlineData("unknown")]
-    [InlineData("")]
-    [InlineData("invalid")]
-    public void GetEngine_Unknown_DefaultsToReadability(string engineName)
-    {
-        var engine = _factory.GetEngine(engineName);
-        
-        Assert.IsType<ReadabilityEngine>(engine);
-    }
-
     [Fact]
-    public void GetFallbackEngine_FromReadability_ReturnsSmartReader()
+    public void GetEngine_WithAnyName_ReturnsSmartReader()
     {
-        var fallback = _factory.GetFallbackEngine("readability");
-        
-        Assert.IsType<SmartReaderEngine>(fallback);
-    }
+        var engine = _factory.GetEngine("anything");
 
-    [Fact]
-    public void GetFallbackEngine_FromSmartReader_ReturnsReadability()
-    {
-        var fallback = _factory.GetFallbackEngine("smartreader");
-        
-        Assert.IsType<ReadabilityEngine>(fallback);
+        Assert.IsType<SmartReaderEngine>(engine);
+        Assert.Equal("smartreader", engine.Name);
     }
 }

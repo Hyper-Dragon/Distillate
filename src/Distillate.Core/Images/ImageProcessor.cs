@@ -2,6 +2,7 @@ using System.Buffers;
 using AngleSharp;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
+using Distillate.Core.Conversion;
 using Distillate.Core.Models;
 using Microsoft.Extensions.Logging;
 using SkiaSharp;
@@ -146,7 +147,7 @@ public class ImageProcessor
             {
                 var doc = parser.ParseDocument(cleanHtml);
                 StripImages(doc);
-                htmlNoImages = doc.DocumentElement.OuterHtml;
+                htmlNoImages = OutputCleaner.UnwrapHtmlDocument(doc.DocumentElement.OuterHtml);
             }
 
             if (needLinked && imageLinkRewrite)
@@ -313,8 +314,24 @@ public class ImageProcessor
 
     private static void StripImages(IDocument document)
     {
+        // Remove <picture> elements (contain <source> and <img>)
+        foreach (var pic in document.QuerySelectorAll("picture").ToList())
+            pic.Remove();
+
+        // Remove remaining <img> tags
         foreach (var img in document.QuerySelectorAll("img").ToList())
             img.Remove();
+
+        // Remove <svg> elements that are decorative
+        foreach (var svg in document.QuerySelectorAll("svg").ToList())
+            svg.Remove();
+
+        // Remove <figure> elements that are now empty
+        foreach (var fig in document.QuerySelectorAll("figure").ToList())
+        {
+            if (string.IsNullOrWhiteSpace(fig.TextContent))
+                fig.Remove();
+        }
     }
 
     private static void RewriteImageLinks(

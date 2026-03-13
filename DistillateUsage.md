@@ -5,10 +5,10 @@
 Distillate is a capacity-bound, synchronous HTTP service that retrieves a URL using a real browser engine, extracts a high-quality "reader view" representation, and returns structured outputs suitable for archival, note-taking, and offline use.
 
 **Key characteristics:**
-- **Honest backpressure** — if the service cannot process your request immediately, it tells you (HTTP 503).
-- **No internal queuing** — capacity limits are explicit and enforced at request time.
-- **Deterministic failure** — errors are returned as structured JSON data, not protocol errors.
-- **Designed for constrained environments** — runs reliably on Raspberry Pi-class hardware.
+- **Honest backpressure** ï¿½ if the service cannot process your request immediately, it tells you (HTTP 503).
+- **No internal queuing** ï¿½ capacity limits are explicit and enforced at request time.
+- **Deterministic failure** ï¿½ errors are returned as structured JSON data, not protocol errors.
+- **Designed for constrained environments** ï¿½ runs reliably on Raspberry Pi-class hardware.
 
 ---
 
@@ -56,7 +56,7 @@ This design ensures:
 ```json
 {
   "url": "https://example.com/article",
-  "engine": "readability",
+  "engine": "smartreader",
   "includeImages": true,
   "includeSourceHtml": false,
   "timeoutMs": 60000,
@@ -76,7 +76,7 @@ This design ensures:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | url | string | **required** | URL to process (http/https only) |
-| engine | string | "readability" | Reader engine: `"readability"` or `"smartreader"` |
+| engine | string | "smartreader" | Reader engine (only `"smartreader"` is supported) |
 | includeImages | boolean | true | Embed images as base64 data URIs in output |
 | includeSourceHtml | boolean | false | Include raw source HTML (for debugging) |
 | timeoutMs | int | null | Override timeout (capped by server max) |
@@ -122,7 +122,7 @@ This design ensures:
 ```
 
 **Backpressure response (HTTP 503):**
-- No body — the service is at capacity.
+- No body ï¿½ the service is at capacity.
 - Retry with exponential backoff.
 
 ---
@@ -136,9 +136,9 @@ The `completionFlags` field is a bitmask indicating processing status:
 | 0 | Complete | Processing completed successfully |
 | 1 | ImageTruncated | Image budget exceeded, some images omitted |
 | 2 | SourceHtmlOmitted | Source HTML not included (default behavior) |
-| 4 | EngineFallbackUsed | Primary engine failed, fallback engine succeeded |
+| 4 | _Reserved_ | _(was EngineFallbackUsed â€” removed)_ |
 
-Flags can be combined (e.g., `5` = ImageTruncated + EngineFallbackUsed).
+Flags can be combined (e.g., `9` = ImageTruncated + ImageLinkRewriteApplied).
 
 ---
 
@@ -175,7 +175,7 @@ curl -X POST http://localhost:8080/process \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/article",
-    "engine": "readability",
+    "engine": "smartreader",
     "includeImages": false,
     "includeSourceHtml": false
   }'
@@ -225,7 +225,7 @@ curl -X POST http://localhost:8080/process \
 ```powershell
 $body = @{
     url = "https://example.com/article"
-    engine = "readability"
+    engine = "smartreader"
     includeImages = $false
     includeSourceHtml = $false
 } | ConvertTo-Json
@@ -316,7 +316,7 @@ These are configured on the server side, not by clients:
 - **HTTP 200 with `success: true`**: Request completed successfully.
 - **HTTP 200 with `success: false`**: Request processed but extraction failed (check `errors` array).
 - **HTTP 400**: Bad request (invalid URL, URL too long, etc.).
-- **HTTP 503**: Service at capacity — retry with backoff.
+- **HTTP 503**: Service at capacity ï¿½ retry with backoff.
 
 The service guarantees **contract stability**: errors are always returned as structured JSON data in the `errors` array, never as protocol-level failures (except 503 for backpressure).
 
@@ -324,9 +324,9 @@ The service guarantees **contract stability**: errors are always returned as str
 
 ## Tips for Consumers
 
-1. **Always check `success` field** — HTTP 200 does not guarantee successful extraction.
-2. **Use `traceId`** — Pass your own `X-Trace-Id` header for distributed tracing.
-3. **Handle `completionFlags`** — Check for partial results (e.g., truncated images).
-4. **Set appropriate timeouts** — Complex pages may take 30-60+ seconds to render.
-5. **Respect backpressure** — Don't retry immediately on 503; use exponential backoff.
+1. **Always check `success` field** ï¿½ HTTP 200 does not guarantee successful extraction.
+2. **Use `traceId`** ï¿½ Pass your own `X-Trace-Id` header for distributed tracing.
+3. **Handle `completionFlags`** ï¿½ Check for partial results (e.g., truncated images).
+4. **Set appropriate timeouts** ï¿½ Complex pages may take 30-60+ seconds to render.
+5. **Respect backpressure** ï¿½ Don't retry immediately on 503; use exponential backoff.
 6. **Prefer `includeImages: false`** for faster responses when images aren't needed.

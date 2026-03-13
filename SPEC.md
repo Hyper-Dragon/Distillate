@@ -43,9 +43,8 @@ The coarse `includeImages` / `includeSourceHtml` booleans are replaced by a gran
 * JSON: System.Text.Json only (no Newtonsoft)
 * Browser Automation: Microsoft.Playwright (without bundled browsers)
 * Browser Engine: System-installed Chromium
-* Reader Engines:
-  1. Readability (AngleSharp-based)
-  2. SmartReader (Mozilla Readability port)
+* Reader Engine: SmartReader (Mozilla Readability.js port — equivalent to Firefox Reader View)
+* Article Cleaning: HtmlArticleCleaner (AngleSharp DOM-based structural post-processing)
 * Markdown Conversion: ReverseMarkdown
 * Image Conversion: SkiaSharp (Linux ARM64/amd64 compatible; System.Drawing.Common is explicitly excluded)
 
@@ -59,7 +58,7 @@ Distillate/
 |   --- Distillate.Core/           # Domain models, extraction logic, services
 |   |   |   Configuration/         # DistillateOptions
 |   |   |   Conversion/            # MarkdownConverter
-|   |   |   Extraction/            # Reader engines (Readability, SmartReader)
+|   |   |   Extraction/            # SmartReader engine
 |   |   |   Images/                # ImageProcessor, LinkExtractor
 |   |   |   Models/                # ProcessRequest, ProcessResponse
 |   |   |   Services/              # IDistillateService, DistillateService
@@ -119,7 +118,7 @@ POST /process
 ```json
 {
   "url": "https://example.com/article",
-  "engine": "readability",
+  "engine": "smartreader",
   "timeoutMs": 60000,
   "stabilizationMs": 5000,
   "userAgent": "Custom/1.0",
@@ -151,7 +150,7 @@ POST /process
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | url | string | required | URL to process (http/https only) |
-| engine | string | "readability" | Reader engine: "readability" or "smartreader" |
+| engine | string | "smartreader" | Reader engine (only "smartreader" is supported) |
 | timeoutMs | int? | null | Override timeout (capped by server max) |
 | stabilizationMs | int? | null | Override DOM stabilization delay |
 | userAgent | string? | null | Override User-Agent |
@@ -329,9 +328,11 @@ Browser fetch ? sourceHtml captured
      ??? allLinksMedia    (deduplicated <img>,<video>,<source> from sourceHtml)
      ??? allLinksAssets   (deduplicated <link>,<script> from sourceHtml)
      ?
-     ??? Reader engine extraction
+     ??? Reader engine extraction (SmartReader)
               ?
-              ??? cleanHtml (base � absolute URLs, no image processing)
+              ??? HtmlArticleCleaner (DOM-based structural cleaning)
+              ?       ?
+              ?       ??? cleanHtml (cleaned article HTML)
               ?       ?
               ?       ??? cleanHtmlNoImages       (strip <img> elements)
               ?       ??? cleanHtmlLinkedImages   (rewrite src ? localName)
@@ -339,7 +340,7 @@ Browser fetch ? sourceHtml captured
               ?
               ??? markdownNoImages       (converted from cleanHtmlNoImages)
               ??? markdownLinkedImages   (converted from cleanHtmlLinkedImages)
-              ??? plainText              (from reader engine)
+              ??? plainText              (from HtmlArticleCleaner.ExtractPlainText)
               ?
               ??? allInPageImages
               ?       (unique URLs from cleanHtml <img> elements)
@@ -386,7 +387,7 @@ This is intentionally "anti-throughput" in favor of deterministic memory recover
 | 0 | Complete | Processing completed successfully |
 | 1 | ImageTruncated | Image budget exceeded during embedding |
 | 2 | SourceHtmlOmitted | includeSourceHtml was false |
-| 4 | EngineFallbackUsed | Primary engine failed; fallback succeeded |
+| 4 | _Reserved_ | _(was EngineFallbackUsed — removed)_ |
 | 8 | ImageLinkRewriteApplied | imageLinkRewrite=true rewrites were applied |
 | 16 | ImageLinkRewriteImpliedInPageImages | imageLinkRewrite implicitly forced includeAllInPageImages=true |
 | 32 | AllInPageImagesPartial | One or more in-page images could not be fetched or decoded |

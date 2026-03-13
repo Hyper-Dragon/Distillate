@@ -11,7 +11,7 @@ public class ProcessRequestTests
         var request = new ProcessRequest { Url = "https://example.com" };
 
         Assert.Equal("https://example.com", request.Url);
-        Assert.Equal("readability", request.Engine);
+        Assert.Equal("smartreader", request.Engine);
         Assert.Null(request.TimeoutMs);
         Assert.Null(request.StabilizationMs);
         Assert.Null(request.UserAgent);

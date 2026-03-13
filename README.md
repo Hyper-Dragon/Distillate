@@ -6,7 +6,7 @@ A capacity-bound, synchronous HTTP service that extracts "reader view" content f
 
 - **Honest Backpressure**: No internal queuing. If the service is at capacity, it returns 503 immediately.
 - **Real Browser Rendering**: Uses Playwright with system-installed Chromium for JavaScript-heavy pages.
-- **Multiple Reader Engines**: Supports Readability (AngleSharp-based) and SmartReader with automatic fallback.
+- **SmartReader Engine**: Uses Mozilla Readability.js port (same algorithm as Firefox Reader View) with DOM-based post-processing.
 - **Image Embedding**: Converts images to base64 data URIs with configurable memory budget.
 - **Markdown Output**: Clean markdown conversion for note-taking and archival.
 - **ARM Optimized**: Designed for Raspberry Pi and other low-power ARM systems.
@@ -67,7 +67,7 @@ Process a URL and extract reader view content.
 ```json
 {
   "url": "https://example.com/article",
-  "engine": "readability",
+  "engine": "smartreader",
   "includeImages": true,
   "includeSourceHtml": false
 }

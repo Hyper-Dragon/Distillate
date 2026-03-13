@@ -68,23 +68,21 @@ public class DistillateService : IDistillateService
             if (string.IsNullOrEmpty(sourceHtml))
                 return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Failed to fetch page content");
 
-            // --- Reader extraction ---
-            var engine = _engineFactory.GetEngine(request.Engine);
+            // --- Reader extraction (SmartReader — Mozilla Readability port) ---
+            var engine = _engineFactory.GetEngine();
             var extraction = engine.Extract(sourceHtml, uri);
 
             if (!extraction.Success)
-            {
-                _logger.LogWarning("Primary engine {Engine} failed, trying fallback", engine.Name);
-                var fallbackEngine = _engineFactory.GetFallbackEngine(engine.Name);
-                extraction = fallbackEngine.Extract(sourceHtml, uri);
-
-                if (extraction.Success)
-                    completionFlags |= CompletionFlag.EngineFallbackUsed;
-                else
-                    errors.Add($"Extraction failed: {extraction.Error}");
-            }
+                errors.Add($"Extraction failed: {extraction.Error}");
 
             var baseCleanHtml = extraction.CleanHtml ?? string.Empty;
+
+            // --- DOM-level article cleaning (structural, not regex) ---
+            // This is the key quality step: clean the HTML using semantic/structural
+            // rules before producing any downstream output. Like Firefox Reader View.
+            var articleHtml = string.IsNullOrEmpty(baseCleanHtml)
+                ? baseCleanHtml
+                : HtmlArticleCleaner.Clean(baseCleanHtml);
 
             // --- Link extraction (from source HTML) ---
             string[]? allLinksInPage = null;
@@ -117,7 +115,7 @@ public class DistillateService : IDistillateService
             ImageEntry[]? allInPageImages = null;
             ImageEntry[]? allOutOfPageImages = null;
 
-            bool needAnyImageWork = extraction.Success && !string.IsNullOrEmpty(baseCleanHtml) &&
+            bool needAnyImageWork = extraction.Success && !string.IsNullOrEmpty(articleHtml) &&
                 (request.IncludeCleanHtmlEmbeddedImages || request.IncludeCleanHtmlLinkedImages ||
                  request.IncludeCleanHtmlNoImages || effectiveIncludeInPage || request.IncludeAllOutOfPageImages);
 
@@ -133,7 +131,7 @@ public class DistillateService : IDistillateService
 
                     var imgResult = await processor.ProcessAsync(
                         sourceHtml,
-                        baseCleanHtml,
+                        articleHtml,
                         uri,
                         needEmbedded:        request.IncludeCleanHtmlEmbeddedImages,
                         needLinked:          request.IncludeCleanHtmlLinkedImages,
@@ -163,7 +161,7 @@ public class DistillateService : IDistillateService
             else if (request.IncludeCleanHtmlNoImages && extraction.Success)
             {
                 // No image work needed but NoImages variant was requested and there was nothing to process
-                cleanHtmlNoImages = baseCleanHtml;
+                cleanHtmlNoImages = articleHtml;
             }
 
             // --- Markdown variants ---
@@ -172,17 +170,32 @@ public class DistillateService : IDistillateService
 
             if (request.IncludeMarkdownNoImages && extraction.Success)
             {
-                var source = cleanHtmlNoImages ?? (needAnyImageWork ? null : baseCleanHtml);
-                markdownNoImages = _markdownConverter.ConvertToMarkdown(source ?? baseCleanHtml);
+                var source = cleanHtmlNoImages ?? (needAnyImageWork ? null : articleHtml);
+                // Always strip images from HTML before conversion for the NoImages variant
+                var htmlForNoImages = OutputCleaner.StripHtmlImages(source ?? articleHtml);
+                markdownNoImages = _markdownConverter.ConvertToMarkdown(htmlForNoImages);
+                if (markdownNoImages != null)
+                {
+                    markdownNoImages = OutputCleaner.StripMarkdownImages(markdownNoImages);
+                    markdownNoImages = OutputCleaner.CleanMarkdown(markdownNoImages);
+                }
             }
 
             if (request.IncludeMarkdownLinkedImages && extraction.Success)
             {
-                markdownLinked = _markdownConverter.ConvertToMarkdown(cleanHtmlLinked ?? baseCleanHtml);
+                markdownLinked = _markdownConverter.ConvertToMarkdown(cleanHtmlLinked ?? articleHtml);
+                if (markdownLinked != null)
+                    markdownLinked = OutputCleaner.CleanMarkdown(markdownLinked);
             }
 
             // --- Plain text ---
-            string? plainText = request.IncludePlainText ? extraction.RawText : null;
+            // Generate from cleaned HTML with proper block-level separation,
+            // not from raw TextContent which concatenates everything.
+            string? plainText = null;
+            if (request.IncludePlainText && extraction.Success && !string.IsNullOrEmpty(articleHtml))
+            {
+                plainText = HtmlArticleCleaner.ExtractPlainText(baseCleanHtml);
+            }
 
             // --- Source HTML ---
             string? responseSourceHtml = null;

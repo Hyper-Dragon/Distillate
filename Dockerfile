@@ -61,6 +61,7 @@ COPY --from=build /root/.cache/ms-playwright /root/.cache/ms-playwright
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 ENV DISPLAY=:99
+ENV CHROMIUM_PATH=/usr/bin/chromium
 
 ENV CONCURRENCY=1
 ENV MAX_TIME_MS=180000

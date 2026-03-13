@@ -7,6 +7,10 @@ Instructions for AI agents to build, run, and verify the Distillate container.
 - Docker running in WSL (not Docker Desktop)
 - The `docker-buildx` plugin may not be installed; use `Dockerfile.test` which strips the `--platform=$BUILDPLATFORM` directive for compatibility with the legacy builder
 
+## Important: Chromium Path
+
+The container installs Chromium via `apt` as `/usr/bin/chromium`. The code default and `CHROMIUM_PATH` env var must point to `/usr/bin/chromium` — **not** `/usr/bin/chromium-browser` (which is a snap wrapper that fails in Docker). If running an image built before this fix, override at runtime: `-e CHROMIUM_PATH=/usr/bin/chromium`.
+
 ## Quick Reference
 
 | Item | Value |
@@ -63,7 +67,7 @@ All configuration is via environment variables. Override defaults with `-e` flag
 | `STABILIZATION_MS` | `10000` | Page stabilization wait time (ms) |
 | `LOG_LEVEL` | `Information` | Logging level |
 | `PORT` | `8080` | Internal listen port (rarely needs changing) |
-| `CHROMIUM_PATH` | `/usr/bin/chromium-browser` | Path to Chromium binary in container |
+| `CHROMIUM_PATH` | `/usr/bin/chromium` | Path to Chromium binary in container |
 | `MAX_URL_LENGTH` | `2048` | Max URL length accepted |
 | `USER_AGENT` | Chrome 120 UA string | User-Agent header for page fetching |
 | `SCROLL_DELAY_MS` | `100` | Delay between scroll steps (ms) |
@@ -100,7 +104,7 @@ curl -X POST http://localhost:<HOST_PORT>/process \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
-    "engine": "readability",
+    "engine": "smartreader",
     "includeMarkdownNoImages": true,
     "includePlainText": true
   }'

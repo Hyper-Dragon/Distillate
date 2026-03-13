@@ -16,7 +16,7 @@ public class DistillateOptionsTests
         Assert.Equal("normal", options.GcMode);
         Assert.Equal(10_000, options.StabilizationMs);
         Assert.Equal(2048, options.MaxUrlLength);
-        Assert.Equal("/usr/bin/chromium-browser", options.ChromiumPath);
+        Assert.Equal("/usr/bin/chromium", options.ChromiumPath);
         Assert.Equal(8080, options.Port);
         Assert.Equal("Information", options.LogLevel);
         Assert.Equal(100, options.ScrollDelayMs);
