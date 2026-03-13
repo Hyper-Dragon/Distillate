@@ -1,9 +1,0 @@
-CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
-===IMG===
-REPOSITORY        TAG       IMAGE ID       CREATED              SIZE
-distillate-test   latest    4ff497aa1d4b   About a minute ago   1.45GB
-===PROC===
-root         449  5.9  0.6 2929308 84120 ?       Ssl  00:03   0:01 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
-root        1192  0.0  0.0 1671688 4224 ?        Sl   00:03   0:00 /usr/bin/docker-proxy -proto udp -host-ip 0.0.0.0 -host-port 41641 -container-ip 10.250.4.2 -container-port 41641 -use-listen-fd
-root        1199  0.0  0.0 1745420 4352 ?        Sl   00:03   0:00 /usr/bin/docker-proxy -proto udp -host-ip :: -host-port 41641 -container-ip 10.250.4.2 -container-port 41641 -use-listen-fd
-===END===
