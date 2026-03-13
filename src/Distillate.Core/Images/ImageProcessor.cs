@@ -43,12 +43,21 @@ public class ImageProcessor
         { ".bmp", "image/bmp" }
     };
 
+    // Per-image download timeout. Applies to both header request and body download.
+    // Tracking pixels and stalled CDN requests will be abandoned after this window
+    // rather than blocking the entire processing pipeline.
+    private const int PerImageTimeoutMs = 10_000;
+
     public ImageProcessor(ILogger<ImageProcessor> logger, HttpClient httpClient, long maxEmbedBytes)
     {
         _logger = logger;
         _httpClient = httpClient;
         _maxEmbedBytes = maxEmbedBytes;
     }
+
+    /// <summary>Returns the preferred file extension for a given MIME type.</summary>
+    public static string GetExtensionForMime(string mimeType) =>
+        ExtensionByMime.GetValueOrDefault(mimeType, ".jpg");
 
     public async Task<ImageProcessorResult> ProcessAsync(
         string sourceHtml,
@@ -244,7 +253,16 @@ public class ImageProcessor
         bool pngConversionRequired,
         CancellationToken cancellationToken)
     {
-        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // Independent per-image timeout: abandons tracking pixels, stalled CDN responses,
+        // or any server that sends headers but never delivers a body.
+        using var perImageCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        perImageCts.CancelAfter(PerImageTimeoutMs);
+        var token = perImageCts.Token;
+
+        try
+        {
+
+        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
         if (!response.IsSuccessStatusCode)
             return null;
 
@@ -255,15 +273,15 @@ public class ImageProcessor
             mimeType = MimeByExtension.GetValueOrDefault(ext, "application/octet-stream");
         }
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(token);
         using var memStream = new MemoryStream();
 
         var buffer = ArrayPool<byte>.Shared.Rent(81920);
         try
         {
             int read;
-            while ((read = await stream.ReadAsync(buffer.AsMemory(0, 81920), cancellationToken)) > 0)
-                await memStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            while ((read = await stream.ReadAsync(buffer.AsMemory(0, 81920), token)) > 0)
+                await memStream.WriteAsync(buffer.AsMemory(0, read), token);
         }
         finally
         {
@@ -299,6 +317,13 @@ public class ImageProcessor
             SizeBytes = outputBytes.Length,
             Data = Convert.ToBase64String(outputBytes)
         };
+
+        } // end try
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Image fetch timed out after {Ms}ms: {Url}", PerImageTimeoutMs, url);
+            return null;
+        }
     }
 
     private byte[] ConvertToPng(byte[] inputBytes)
@@ -370,9 +395,14 @@ public class ImageProcessor
             if (!Uri.TryCreate(baseUri, src, out var abs) || (abs.Scheme != "http" && abs.Scheme != "https"))
                 continue;
 
+            // Per-image timeout prevents tracking pixels or stalled CDN responses from blocking the pipeline
+            using var perImageCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            perImageCts.CancelAfter(PerImageTimeoutMs);
+            var imageToken = perImageCts.Token;
+
             try
             {
-                using var response = await _httpClient.GetAsync(abs, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                using var response = await _httpClient.GetAsync(abs, HttpCompletionOption.ResponseHeadersRead, imageToken);
                 if (!response.IsSuccessStatusCode)
                     continue;
 
@@ -383,14 +413,14 @@ public class ImageProcessor
                     mimeType = MimeByExtension.GetValueOrDefault(ext, "application/octet-stream");
                 }
 
-                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                await using var stream = await response.Content.ReadAsStreamAsync(imageToken);
                 using var memStream = new MemoryStream();
                 var buffer = ArrayPool<byte>.Shared.Rent(81920);
                 try
                 {
                     int read;
-                    while ((read = await stream.ReadAsync(buffer.AsMemory(0, 81920), cancellationToken)) > 0)
-                        await memStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    while ((read = await stream.ReadAsync(buffer.AsMemory(0, 81920), imageToken)) > 0)
+                        await memStream.WriteAsync(buffer.AsMemory(0, read), imageToken);
                 }
                 finally
                 {
@@ -407,6 +437,10 @@ public class ImageProcessor
                 totalBytes += bytes.Length;
                 var dataUri = $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
                 img.SetAttribute("src", dataUri);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogDebug("Image embed timed out after {Ms}ms: {Url}", PerImageTimeoutMs, abs);
             }
             catch (Exception ex)
             {

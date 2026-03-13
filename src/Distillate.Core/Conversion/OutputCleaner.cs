@@ -36,7 +36,11 @@ public static partial class OutputCleaner
         result = ImageCaptionAfterImageRegex().Replace(result, "$1\n$2");
 
         // Clean up newsletter/promo junk (common across Guardian, NYT, WaPo)
+        // First pass: remove full blocks with both open and close markers
         result = NewsletterPromoRegex().Replace(result, "");
+        // Second pass: remove standalone "skip past newsletter promotion" lines
+        // when no matching close marker is present on the page
+        result = StandaloneNewsletterSkipLineRegex().Replace(result, "");
 
         // Clean up social share link blocks at end: [Facebook](...)[Twitter](...)[Email](...)
         result = SocialShareBlockRegex().Replace(result, "");
@@ -51,6 +55,10 @@ public static partial class OutputCleaner
         // Decode &amp; in URLs within markdown links/images
         result = AmpInMarkdownUrlRegex().Replace(result, m =>
             m.Value.Replace("&amp;", "&"));
+
+        // Remove leading whitespace from standalone image lines so Pandoc sees them
+        // as block-level images rather than code blocks or indented text.
+        result = LeadingSpaceBeforeImageLineRegex().Replace(result, "![");
 
         // Collapse 3+ consecutive blank lines to 2
         result = ExcessiveBlankLinesRegex().Replace(result, "\n\n");
@@ -105,6 +113,7 @@ public static partial class OutputCleaner
 
         // Clean newsletter promo text
         result = NewsletterPromoRegex().Replace(result, "");
+        result = StandaloneNewsletterSkipLineRegex().Replace(result, "");
 
         // Clean "Image source, X" orphaned captions
         result = OrphanedImageCaptionPlainRegex().Replace(result, "");
@@ -164,6 +173,71 @@ public static partial class OutputCleaner
         return ExcessiveBlankLinesRegex().Replace(text, "\n\n");
     }
 
+    /// <summary>
+    /// Removes the second heading when it immediately follows the first and has identical text.
+    /// Handles the common case where the title is prepended as # H1 but the article HTML also
+    /// opens with an H1 or H2 containing the same text.
+    /// </summary>
+    public static string DeduplicateLeadingTitle(string markdown)
+    {
+        if (string.IsNullOrEmpty(markdown)) return markdown;
+
+        var lines = markdown.Split('\n');
+        var limit = Math.Min(lines.Length, 30);
+
+        int firstIdx = -1;
+        string firstText = "";
+
+        for (int i = 0; i < limit; i++)
+        {
+            var m = AnyHeadingRegex().Match(lines[i]);
+            if (!m.Success) continue;
+
+            if (firstIdx < 0)
+            {
+                firstIdx = i;
+                firstText = m.Groups[1].Value.Trim();
+                continue;
+            }
+
+            // Second heading found — remove it if text matches
+            var secondText = m.Groups[1].Value.Trim();
+            if (string.Equals(firstText, secondText, StringComparison.OrdinalIgnoreCase))
+            {
+                var resultLines = new List<string>(lines.Length - 1);
+                for (int j = 0; j < lines.Length; j++)
+                    if (j != i) resultLines.Add(lines[j]);
+                return ExcessiveBlankLinesRegex()
+                    .Replace(string.Join('\n', resultLines), "\n\n")
+                    .TrimEnd();
+            }
+            break; // Different heading text — stop
+        }
+
+        return markdown;
+    }
+
+    /// <summary>
+    /// Injects an image markdown tag immediately after the first heading in the document.
+    /// Used to add the featured/hero image when the article body contains no images.
+    /// </summary>
+    public static string InjectFeaturedImageAfterTitle(string markdown, string imageMarkdown)
+    {
+        if (string.IsNullOrEmpty(markdown)) return imageMarkdown + "\n\n" + markdown;
+
+        var match = AnyHeadingLineRegex().Match(markdown);
+        if (!match.Success)
+            return markdown + "\n\n" + imageMarkdown;
+
+        var afterHeading = match.Index + match.Length;
+        // Skip blank lines immediately after the heading
+        int bodyStart = afterHeading;
+        while (bodyStart < markdown.Length && markdown[bodyStart] == '\n')
+            bodyStart++;
+
+        return markdown[..afterHeading] + "\n" + imageMarkdown + "\n\n" + markdown[bodyStart..];
+    }
+
     // --- Compiled regex patterns ---
 
     [GeneratedRegex(@"\*{4}")]
@@ -177,8 +251,15 @@ public static partial class OutputCleaner
     [GeneratedRegex(@"(\]\([^)]+\))(Image source)")]
     private static partial Regex ImageCaptionAfterImageRegex();
 
-    [GeneratedRegex(@"^\[?skip past newsletter promotion\]?[\s\S]*?(?:after newsletter promotion|sign up)\s*\n?", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    // Match the Guardian-style newsletter block in both plain text and markdown link forms:
+    //   plain:    skip past newsletter promotion ... after newsletter promotion
+    //   markdown: [skip past newsletter promotion](url) ... [after newsletter promotion](url)
+    [GeneratedRegex(@"\[?skip past newsletter promotion\]?(?:\([^)]*\))?\s*[\s\S]*?\[?after newsletter promotion\]?(?:\([^)]*\))?\s*\n?", RegexOptions.IgnoreCase)]
     private static partial Regex NewsletterPromoRegex();
+
+    // Removes a lone "skip past newsletter promotion" line when the page has no matching close marker
+    [GeneratedRegex(@"^[ \t]*\[?skip past newsletter promotion\]?(?:\([^)]*\))?[ \t]*\r?\n?", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
+    private static partial Regex StandaloneNewsletterSkipLineRegex();
 
     [GeneratedRegex(@"\n?\[Facebook\]\([^)]*\)\s*\[Twitter\]\([^)]*\)\s*\[Email\]\([^)]*\)\s*$", RegexOptions.Multiline)]
     private static partial Regex SocialShareBlockRegex();
@@ -200,6 +281,15 @@ public static partial class OutputCleaner
 
     [GeneratedRegex(@"[ \t]+$", RegexOptions.Multiline)]
     private static partial Regex TrailingWhitespaceRegex();
+
+    [GeneratedRegex(@"^[ \t]+!\[", RegexOptions.Multiline)]
+    private static partial Regex LeadingSpaceBeforeImageLineRegex();
+
+    [GeneratedRegex(@"^#{1,6}\s+(.+?)\s*$", RegexOptions.Multiline)]
+    private static partial Regex AnyHeadingRegex();
+
+    [GeneratedRegex(@"^#{1,6}\s+.+\n?", RegexOptions.Multiline)]
+    private static partial Regex AnyHeadingLineRegex();
 
     [GeneratedRegex(@"!\[[^\]]*\]\([^)]+\)\s*")]
     private static partial Regex MarkdownImageRegex();

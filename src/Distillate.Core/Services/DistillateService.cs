@@ -185,6 +185,7 @@ public class DistillateService : IDistillateService
                     markdownNoImages = OutputCleaner.StripMarkdownImages(markdownNoImages);
                     markdownNoImages = OutputCleaner.CleanMarkdown(markdownNoImages);
                     markdownNoImages = titlePrefix + markdownNoImages;
+                    markdownNoImages = OutputCleaner.DeduplicateLeadingTitle(markdownNoImages);
                 }
             }
 
@@ -195,6 +196,51 @@ public class DistillateService : IDistillateService
                 {
                     markdownLinked = OutputCleaner.CleanMarkdown(markdownLinked);
                     markdownLinked = titlePrefix + markdownLinked;
+                    markdownLinked = OutputCleaner.DeduplicateLeadingTitle(markdownLinked);
+                }
+            }
+
+            // Featured image fallback: when markdownLinkedImages is requested but the article
+            // body contains no images, inject the featured/hero image under the title heading
+            // and add it to allInPageImages so the caller receives it as a downloadable file.
+            if (request.IncludeMarkdownLinkedImages
+                && markdownLinked != null
+                && !string.IsNullOrWhiteSpace(extraction.FeaturedImage)
+                && (allInPageImages == null || allInPageImages.Length == 0))
+            {
+                try
+                {
+                    var httpClient = _httpClientFactory.CreateClient("ImageDownloader");
+                    using var featuredCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
+                    featuredCts.CancelAfter(10_000);
+                    using var response = await httpClient.GetAsync(
+                        extraction.FeaturedImage, HttpCompletionOption.ResponseHeadersRead, featuredCts.Token);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var mimeType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                        var bytes = await response.Content.ReadAsByteArrayAsync(featuredCts.Token);
+                        var ext = ImageProcessor.GetExtensionForMime(mimeType);
+                        var localName = $"image-0000{ext}";
+                        allInPageImages =
+                        [
+                            new ImageEntry
+                            {
+                                Index = 0,
+                                LocalName = localName,
+                                OriginalUrl = extraction.FeaturedImage,
+                                OriginalMimeType = mimeType,
+                                Alt = extraction.Title,
+                                SizeBytes = bytes.Length,
+                                Data = Convert.ToBase64String(bytes)
+                            }
+                        ];
+                        markdownLinked = OutputCleaner.InjectFeaturedImageAfterTitle(
+                            markdownLinked, $"![{extraction.Title ?? ""}]({localName})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to fetch featured image: {Url}", extraction.FeaturedImage);
                 }
             }
 

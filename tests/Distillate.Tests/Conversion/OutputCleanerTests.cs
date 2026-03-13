@@ -222,4 +222,116 @@ public class OutputCleanerTests
         var result = OutputCleaner.UnwrapHtmlDocument(input);
         Assert.Equal("<div>content</div>", result);
     }
+
+    // ========== CleanMarkdown — leading whitespace before image ==========
+
+    [Fact]
+    public void CleanMarkdown_TrimsLeadingSpaceFromStandaloneImageLine()
+    {
+        var input = "# Title\n\n   ![alt](image-0000.jpg)\n\nParagraph.";
+        var result = OutputCleaner.CleanMarkdown(input);
+        Assert.Contains("\n![alt](image-0000.jpg)", result);
+        Assert.DoesNotContain("   ![", result);
+    }
+
+    [Fact]
+    public void CleanMarkdown_TrimsLeadingTabFromStandaloneImageLine()
+    {
+        var input = "# Title\n\n\t![](image-0001.jpg)\n\nParagraph.";
+        var result = OutputCleaner.CleanMarkdown(input);
+        Assert.DoesNotContain("\t![", result);
+        Assert.Contains("![](image-0001.jpg)", result);
+    }
+
+    [Fact]
+    public void CleanMarkdown_StripsNewsletterPromo_MarkdownLinkForm()
+    {
+        var input = "article text\n[skip past newsletter promotion](https://example.com/skip)\nPromo content.\n[after newsletter promotion](https://example.com/after)\nmore text";
+        var result = OutputCleaner.CleanMarkdown(input);
+        Assert.DoesNotContain("newsletter promotion", result);
+        Assert.Contains("article text", result);
+        Assert.Contains("more text", result);
+    }
+
+    [Fact]
+    public void CleanMarkdown_StripsStandaloneNewsletterSkipLine()
+    {
+        // Guardian-style: just a lone "skip past newsletter promotion" with no closing marker
+        var input = "paragraph one.\nskip past newsletter promotion\nparagraph two.";
+        var result = OutputCleaner.CleanMarkdown(input);
+        Assert.DoesNotContain("skip past newsletter promotion", result);
+        Assert.Contains("paragraph one", result);
+        Assert.Contains("paragraph two", result);
+    }
+
+    // ========== DeduplicateLeadingTitle ==========
+
+    [Fact]
+    public void DeduplicateLeadingTitle_RemovesDuplicateH1ThenH2()
+    {
+        var input = "# A Tale of Two Plumbers\n\n## A Tale of Two Plumbers\n\nArticle body.";
+        var result = OutputCleaner.DeduplicateLeadingTitle(input);
+        Assert.StartsWith("# A Tale of Two Plumbers", result);
+        // Only one heading with this text
+        var count = System.Text.RegularExpressions.Regex.Matches(result, "A Tale of Two Plumbers").Count;
+        Assert.Equal(1, count);
+        Assert.Contains("Article body", result);
+    }
+
+    [Fact]
+    public void DeduplicateLeadingTitle_RemovesDuplicateH1ThenH1()
+    {
+        var input = "# My Title\n\n# My Title\n\nContent here.";
+        var result = OutputCleaner.DeduplicateLeadingTitle(input);
+        var count = System.Text.RegularExpressions.Regex.Matches(result, "My Title").Count;
+        Assert.Equal(1, count);
+        Assert.Contains("Content here", result);
+    }
+
+    [Fact]
+    public void DeduplicateLeadingTitle_PreservesDifferentSecondHeading()
+    {
+        var input = "# First Heading\n\n## Second Heading\n\nContent.";
+        var result = OutputCleaner.DeduplicateLeadingTitle(input);
+        Assert.Contains("# First Heading", result);
+        Assert.Contains("## Second Heading", result);
+    }
+
+    [Fact]
+    public void DeduplicateLeadingTitle_NoHeadings_ReturnsUnchanged()
+    {
+        var input = "Just some text without headings.";
+        var result = OutputCleaner.DeduplicateLeadingTitle(input);
+        Assert.Equal(input, result);
+    }
+
+    [Fact]
+    public void DeduplicateLeadingTitle_EmptyInput_ReturnsEmpty()
+    {
+        Assert.Equal("", OutputCleaner.DeduplicateLeadingTitle(""));
+    }
+
+    // ========== InjectFeaturedImageAfterTitle ==========
+
+    [Fact]
+    public void InjectFeaturedImageAfterTitle_InjectsUnderFirstHeading()
+    {
+        var input = "# My Article\n\nFirst paragraph.";
+        var result = OutputCleaner.InjectFeaturedImageAfterTitle(input, "![My Article](image-0000.jpg)");
+        Assert.Contains("# My Article", result);
+        Assert.Contains("![My Article](image-0000.jpg)", result);
+        Assert.Contains("First paragraph", result);
+        // Image must appear before body text
+        var imagePos = result.IndexOf("![My Article]", StringComparison.Ordinal);
+        var bodyPos = result.IndexOf("First paragraph", StringComparison.Ordinal);
+        Assert.True(imagePos < bodyPos);
+    }
+
+    [Fact]
+    public void InjectFeaturedImageAfterTitle_NoHeading_AppendsAtEnd()
+    {
+        var input = "Article body with no heading.";
+        var result = OutputCleaner.InjectFeaturedImageAfterTitle(input, "![img](image-0000.jpg)");
+        Assert.Contains("![img](image-0000.jpg)", result);
+    }
 }
