@@ -39,6 +39,9 @@ public class ProcessRequestTests
 
         // Debug flag
         Assert.False(request.IncludeDebugInfo);
+
+        // Unicode normalization
+        Assert.Equal(UnicodeNormalizationMode.Preserve, request.UnicodeNormalization);
     }
 
     [Fact]
@@ -65,7 +68,8 @@ public class ProcessRequestTests
             IncludeAllInPageImages = true,
             IncludeAllOutOfPageImages = true,
             ImageLinkRewrite = true,
-            PngConversionRequired = true
+            PngConversionRequired = true,
+            UnicodeNormalization = UnicodeNormalizationMode.Ascii
         };
 
         Assert.Equal("smartreader", request.Engine);
@@ -88,6 +92,7 @@ public class ProcessRequestTests
         Assert.True(request.IncludeAllOutOfPageImages);
         Assert.True(request.ImageLinkRewrite);
         Assert.True(request.PngConversionRequired);
+        Assert.Equal(UnicodeNormalizationMode.Ascii, request.UnicodeNormalization);
     }
 }
 

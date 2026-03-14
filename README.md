@@ -93,6 +93,7 @@ Process a URL and extract reader view content.
 | `includeAllOutOfPageImages` | `false` | Images in source HTML but absent from article |
 | `imageLinkRewrite` | `false` | Rewrite `src` attributes to local filenames (implies `includeAllInPageImages`) |
 | `pngConversionRequired` | `false` | Convert all fetched images to PNG via SkiaSharp |
+| `unicodeNormalization` | `"preserve"` | Unicode punctuation handling: `"preserve"` (default, keeps smart quotes/dashes), `"ascii"` (converts to plain ASCII), or `"latex"` (LaTeX-idiomatic sequences) |
 
 **Example request:**
 

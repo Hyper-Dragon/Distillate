@@ -70,6 +70,7 @@ This design ensures:
   "includeSourceHtml": false,
   "includeAllInPageImages": false,
   "includeAllOutOfPageImages": false,
+  "unicodeNormalization": "preserve",
   "timeoutMs": 60000,
   "stabilizationMs": 5000,
   "userAgent": "Custom/1.0",
@@ -99,6 +100,7 @@ This design ensures:
 | includeAllOutOfPageImages | bool | false | Include images in source but not in reader HTML |
 | imageLinkRewrite | bool | false | Rewrite img src to local filenames (implies includeAllInPageImages) |
 | pngConversionRequired | bool | false | Convert all images to PNG |
+| unicodeNormalization | string | "preserve" | Unicode punctuation handling: `"preserve"` (keeps smart quotes/dashes), `"ascii"` (plain ASCII), `"latex"` (LaTeX sequences) |
 | timeoutMs | int | null | Override timeout (capped by server max) |
 | stabilizationMs | int | null | Override DOM stabilization delay |
 | userAgent | string | null | Override User-Agent |
