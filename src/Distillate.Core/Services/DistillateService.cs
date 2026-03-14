@@ -205,6 +205,7 @@ public class DistillateService : IDistillateService
                 {
                     markdownNoImages = OutputCleaner.StripMarkdownImages(markdownNoImages);
                     markdownNoImages = OutputCleaner.CleanMarkdown(markdownNoImages);
+                    markdownNoImages = OutputCleaner.NormalizeUnicodePunctuation(markdownNoImages, request.UnicodeNormalization);
                     markdownNoImages = titlePrefix + markdownNoImages;
                     markdownNoImages = OutputCleaner.DeduplicateLeadingTitle(markdownNoImages);
                 }
@@ -216,6 +217,7 @@ public class DistillateService : IDistillateService
                 if (markdownLinked != null)
                 {
                     markdownLinked = OutputCleaner.CleanMarkdown(markdownLinked);
+                    markdownLinked = OutputCleaner.NormalizeUnicodePunctuation(markdownLinked, request.UnicodeNormalization);
                     markdownLinked = titlePrefix + markdownLinked;
                     markdownLinked = OutputCleaner.DeduplicateLeadingTitle(markdownLinked);
                 }
@@ -295,6 +297,8 @@ public class DistillateService : IDistillateService
             {
                 var plainTextTimer = Stopwatch.StartNew();
                 plainText = HtmlArticleCleaner.ExtractPlainText(baseCleanHtml);
+                if (plainText != null)
+                    plainText = OutputCleaner.NormalizeUnicodePunctuation(plainText, request.UnicodeNormalization);
                 plainTextTimer.Stop();
                 stages?.Add(new StageTiming { Stage = "PlainText", Ms = plainTextTimer.Elapsed.TotalMilliseconds });
             }

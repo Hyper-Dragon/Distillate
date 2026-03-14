@@ -144,7 +144,8 @@ POST /process
   "includeAllInPageImages": false,
   "includeAllOutOfPageImages": false,
   "imageLinkRewrite": false,
-  "pngConversionRequired": false
+  "pngConversionRequired": false,
+  "unicodeNormalization": "preserve"
 }
 ```
 
@@ -170,6 +171,7 @@ POST /process
 | includeAllOutOfPageImages | bool | false | Images found in source HTML but absent from clean HTML |
 | imageLinkRewrite | bool | false | Rewrite img src in linked outputs to local filenames. Implicitly forces includeAllInPageImages=true |
 | pngConversionRequired | bool | false | Convert all fetched images to PNG via SkiaSharp. When false, images are returned in their original format |
+| unicodeNormalization | string | "preserve" | Controls how Unicode typographic characters (smart quotes, dashes, ellipsis) are handled in text outputs. `"preserve"` keeps them as-is; `"ascii"` converts to plain ASCII; `"latex"` converts to LaTeX-idiomatic sequences (en-dash → `--`, em-dash → `---`) |
 
 #### Implicit Behaviour Rules
 

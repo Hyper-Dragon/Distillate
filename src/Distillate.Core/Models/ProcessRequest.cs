@@ -81,6 +81,15 @@ public record ProcessRequest
     public bool PngConversionRequired { get; init; } = false;
 
     /// <summary>
+    /// Controls how Unicode typographic characters (smart quotes, dashes, ellipsis)
+    /// are handled in text and markdown outputs.
+    /// "preserve" (default) keeps them as-is; "ascii" converts to plain ASCII;
+    /// "latex" converts to LaTeX-idiomatic sequences (e.g. em-dash → ---).
+    /// </summary>
+    [JsonPropertyName("unicodeNormalization")]
+    public UnicodeNormalizationMode UnicodeNormalization { get; init; } = UnicodeNormalizationMode.Preserve;
+
+    /// <summary>
     /// When true, a debugInfo object is included in the response containing
     /// per-stage wall-clock timings and a log of every image fetch (URL, outcome,
     /// HTTP status, bytes, ms). Useful for diagnosing slow or hanging requests.

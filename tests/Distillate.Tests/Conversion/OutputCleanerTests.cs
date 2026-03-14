@@ -1,4 +1,5 @@
 using Distillate.Core.Conversion;
+using Distillate.Core.Models;
 using Xunit;
 
 namespace Distillate.Tests.Conversion;
@@ -267,115 +268,207 @@ public class OutputCleanerTests
     // ========== NormalizeUnicodePunctuation ==========
 
     [Fact]
-    public void CleanMarkdown_NormalizesSmartSingleQuotes()
+    public void CleanMarkdown_PreservesSmartQuotesByDefault()
     {
         var input = "that\u2019s especially true if you\u2019re worn out";
         var result = OutputCleaner.CleanMarkdown(input);
-        Assert.Equal("that's especially true if you're worn out", result);
+        Assert.Contains("\u2019", result);
     }
 
     [Fact]
-    public void CleanMarkdown_NormalizesSmartDoubleQuotes()
-    {
-        var input = "he said \u201CHello world\u201D to the crowd";
-        var result = OutputCleaner.CleanMarkdown(input);
-        Assert.Equal("he said \"Hello world\" to the crowd", result);
-    }
-
-    [Fact]
-    public void CleanMarkdown_NormalizesEnDash()
-    {
-        var input = "pages 10\u201320";
-        var result = OutputCleaner.CleanMarkdown(input);
-        Assert.Equal("pages 10-20", result);
-    }
-
-    [Fact]
-    public void CleanMarkdown_NormalizesEmDash()
+    public void CleanMarkdown_PreservesEmDashByDefault()
     {
         var input = "the idea\u2014however bold\u2014was rejected";
         var result = OutputCleaner.CleanMarkdown(input);
-        Assert.Equal("the idea--however bold--was rejected", result);
+        Assert.Contains("\u2014", result);
     }
 
-    [Fact]
-    public void CleanMarkdown_NormalizesEllipsis()
-    {
-        var input = "the blocking runs\u2026 it turns out";
-        var result = OutputCleaner.CleanMarkdown(input);
-        Assert.Equal("the blocking runs... it turns out", result);
-    }
+    // --- Preserve mode (default) ---
 
     [Fact]
-    public void CleanMarkdown_NormalizesMultipleSmartPunctuation()
+    public void NormalizeUnicodePunctuation_PreserveMode_ReturnsUnchanged()
     {
-        // Real-world example from the issue: Liverpool's defeat
-        var input = "Liverpool\u2019s defeat by Galatasaray \u2013 Jes\u00fas Gil Manzano \u2014 \u201Cthe goal\u201D";
-        var result = OutputCleaner.CleanMarkdown(input);
-        Assert.Equal("Liverpool's defeat by Galatasaray - Jes\u00fas Gil Manzano -- \"the goal\"", result);
+        var input = "that\u2019s the \u201Cway\u201D \u2013 it\u2019s \u2014 \u2026";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input);
+        Assert.Equal(input, result);
     }
 
     [Fact]
     public void NormalizeUnicodePunctuation_NullInput_ReturnsNull()
     {
-        var result = OutputCleaner.NormalizeUnicodePunctuation(null!);
+        var result = OutputCleaner.NormalizeUnicodePunctuation(null!, UnicodeNormalizationMode.Ascii);
         Assert.Null(result);
     }
 
     [Fact]
     public void NormalizeUnicodePunctuation_EmptyInput_ReturnsEmpty()
     {
-        var result = OutputCleaner.NormalizeUnicodePunctuation("");
+        var result = OutputCleaner.NormalizeUnicodePunctuation("", UnicodeNormalizationMode.Ascii);
         Assert.Equal("", result);
     }
 
+    // --- ASCII mode ---
+
     [Fact]
-    public void NormalizeUnicodePunctuation_PreservesAccentedCharacters()
+    public void Ascii_NormalizesSmartSingleQuotes()
     {
-        // Accented characters like ú (Jesús) should NOT be converted
+        var input = "that\u2019s especially true if you\u2019re worn out";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("that's especially true if you're worn out", result);
+    }
+
+    [Fact]
+    public void Ascii_NormalizesSmartDoubleQuotes()
+    {
+        var input = "he said \u201CHello world\u201D to the crowd";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("he said \"Hello world\" to the crowd", result);
+    }
+
+    [Fact]
+    public void Ascii_NormalizesEnDash()
+    {
+        var input = "pages 10\u201320";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("pages 10-20", result);
+    }
+
+    [Fact]
+    public void Ascii_NormalizesEmDash()
+    {
+        var input = "the idea\u2014however bold\u2014was rejected";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("the idea--however bold--was rejected", result);
+    }
+
+    [Fact]
+    public void Ascii_NormalizesEllipsis()
+    {
+        var input = "the blocking runs\u2026 it turns out";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("the blocking runs... it turns out", result);
+    }
+
+    [Fact]
+    public void Ascii_NormalizesMultipleSmartPunctuation()
+    {
+        var input = "Liverpool\u2019s defeat by Galatasaray \u2013 Jes\u00fas Gil Manzano \u2014 \u201Cthe goal\u201D";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("Liverpool's defeat by Galatasaray - Jes\u00fas Gil Manzano -- \"the goal\"", result);
+    }
+
+    [Fact]
+    public void Ascii_PreservesAccentedCharacters()
+    {
         var input = "Jes\u00fas Gil Manzano";
-        var result = OutputCleaner.NormalizeUnicodePunctuation(input);
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
         Assert.Equal("Jes\u00fas Gil Manzano", result);
     }
 
     [Fact]
-    public void NormalizeUnicodePunctuation_ConvertsAllQuoteVariants()
+    public void Ascii_ConvertsAllQuoteVariants()
     {
         var input = "\u2018single\u2019 \u201Cdouble\u201D \u201Alow\u201E";
-        var result = OutputCleaner.NormalizeUnicodePunctuation(input);
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
         Assert.Equal("'single' \"double\" 'low\"", result);
     }
 
     [Fact]
-    public void NormalizeUnicodePunctuation_ConvertsBullet()
+    public void Ascii_ConvertsBullet()
     {
         var input = "\u2022 item one\n\u2022 item two";
-        var result = OutputCleaner.NormalizeUnicodePunctuation(input);
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
         Assert.Equal("* item one\n* item two", result);
     }
 
     [Fact]
-    public void NormalizeUnicodePunctuation_StripsSoftHyphen()
+    public void Ascii_StripsSoftHyphen()
     {
         var input = "anti\u00ADdis\u00ADestablish\u00ADment";
-        var result = OutputCleaner.NormalizeUnicodePunctuation(input);
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
         Assert.Equal("antidisestablishment", result);
     }
 
     [Fact]
-    public void CleanMarkdown_StripsSoftHyphen()
+    public void Ascii_NormalizesNbsp()
+    {
+        var input = "text\u00A0with\u00A0nbsp";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("text with nbsp", result);
+    }
+
+    [Fact]
+    public void Ascii_PrimeMarksInNumericContext()
+    {
+        var input = "The post is 12\u20326\u2033 tall";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("The post is 12'6\" tall", result);
+    }
+
+    [Fact]
+    public void Ascii_MixedNbspAndSmartQuotes()
+    {
+        var input = "He\u00A0said\u00A0\u201CHello\u201D";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Ascii);
+        Assert.Equal("He said \"Hello\"", result);
+    }
+
+    // --- LaTeX mode ---
+
+    [Fact]
+    public void Latex_EnDashMapsToDoubleDash()
+    {
+        var input = "pages 10\u201320";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
+        Assert.Equal("pages 10--20", result);
+    }
+
+    [Fact]
+    public void Latex_EmDashMapsToTripleDash()
+    {
+        var input = "the idea\u2014however bold\u2014was rejected";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
+        Assert.Equal("the idea---however bold---was rejected", result);
+    }
+
+    [Fact]
+    public void Latex_SmartQuotesMapToAscii()
+    {
+        var input = "he said \u201CHello\u201D and \u2018Hi\u2019";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
+        Assert.Equal("he said \"Hello\" and 'Hi'", result);
+    }
+
+    [Fact]
+    public void Latex_EllipsisMapsToThreeDots()
+    {
+        var input = "wait\u2026";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
+        Assert.Equal("wait...", result);
+    }
+
+    [Fact]
+    public void Latex_StripsSoftHyphen()
     {
         var input = "over\u00ADwhelm\u00ADing";
-        var result = OutputCleaner.CleanMarkdown(input);
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
         Assert.Equal("overwhelming", result);
     }
 
     [Fact]
-    public void CleanPlainText_NormalizesSmartPunctuation()
+    public void Latex_PrimeMarksInNumericContext()
     {
-        var input = "that\u2019s the way \u2013 it\u2019s \u201Cdone\u201D";
-        var result = OutputCleaner.CleanPlainText(input);
-        Assert.Equal("that's the way - it's \"done\"", result);
+        var input = "12\u20326\u2033";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
+        Assert.Equal("12'6\"", result);
+    }
+
+    [Fact]
+    public void Latex_FullMixedExample()
+    {
+        var input = "Liverpool\u2019s \u201Cdefeat\u201D \u2013 Jes\u00fas \u2014 wait\u2026";
+        var result = OutputCleaner.NormalizeUnicodePunctuation(input, UnicodeNormalizationMode.Latex);
+        Assert.Equal("Liverpool's \"defeat\" -- Jes\u00fas --- wait...", result);
     }
 
     // ========== DeduplicateLeadingTitle ==========

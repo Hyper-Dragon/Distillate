@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Distillate.Core.Models;
 
 namespace Distillate.Core.Conversion;
 
@@ -24,9 +25,6 @@ public static partial class OutputCleaner
 
         // Normalize non-breaking spaces to regular spaces
         result = result.Replace('\u00A0', ' ');
-
-        // Normalize Unicode smart punctuation to ASCII equivalents
-        result = NormalizeUnicodePunctuation(result);
 
         // Strip empty bold markers: **** (two empty ** pairs collapsed together)
         result = EmptyBoldRegex().Replace(result, "");
@@ -107,9 +105,6 @@ public static partial class OutputCleaner
 
         // Normalize non-breaking spaces
         result = result.Replace('\u00A0', ' ');
-
-        // Normalize Unicode smart punctuation to ASCII equivalents
-        result = NormalizeUnicodePunctuation(result);
 
         // Fix "ByAuthorName" → "By Author Name" (common BBC pattern)
         result = BylineNoSpaceRegex().Replace(result, "By $1");
@@ -248,46 +243,69 @@ public static partial class OutputCleaner
 
     /// <summary>
     /// Replaces common Unicode typographic characters (smart quotes, en/em dashes,
-    /// ellipsis, etc.) with their plain ASCII equivalents.  These code-points are
-    /// valid UTF-8 but cause failures in downstream processors such as LaTeX/Pandoc
-    /// that expect ASCII-range punctuation.
+    /// ellipsis, etc.) according to the requested mode.
+    /// <list type="bullet">
+    ///   <item><see cref="UnicodeNormalizationMode.Preserve"/> — returns text unchanged (default).</item>
+    ///   <item><see cref="UnicodeNormalizationMode.Ascii"/> — maps to plain ASCII equivalents.</item>
+    ///   <item><see cref="UnicodeNormalizationMode.Latex"/> — maps to LaTeX-idiomatic sequences
+    ///         (en-dash → <c>--</c>, em-dash → <c>---</c>).</item>
+    /// </list>
+    /// Non-breaking spaces (U+00A0) are always normalised to regular spaces.
+    /// Soft hyphens (U+00AD) are always removed.
     /// </summary>
-    public static string NormalizeUnicodePunctuation(string text)
+    public static string NormalizeUnicodePunctuation(
+        string text, UnicodeNormalizationMode mode = UnicodeNormalizationMode.Preserve)
     {
         if (string.IsNullOrEmpty(text))
             return text;
 
+        if (mode == UnicodeNormalizationMode.Preserve)
+            return text;
+
         var result = text;
 
-        // Smart single quotes → ASCII apostrophe
+        // --- Always applied regardless of mode ---
+
+        // Non-breaking space → regular space
+        result = result.Replace('\u00A0', ' ');
+
+        // Soft hyphen → remove (invisible formatting hint)
+        result = result.Replace("\u00AD", "");
+
+        // --- Smart single quotes → ASCII apostrophe ---
         result = result.Replace('\u2018', '\'');  // ' left single quotation mark
         result = result.Replace('\u2019', '\'');  // ' right single quotation mark
         result = result.Replace('\u201A', '\'');  // ‚ single low-9 quotation mark
 
-        // Smart double quotes → ASCII double quote
+        // --- Smart double quotes → ASCII double quote ---
         result = result.Replace('\u201C', '"');   // " left double quotation mark
         result = result.Replace('\u201D', '"');   // " right double quotation mark
         result = result.Replace('\u201E', '"');   // „ double low-9 quotation mark
 
-        // Dashes → ASCII hyphen(s)
-        result = result.Replace("\u2013", "-");   // – en dash
-        result = result.Replace("\u2014", "--");  // — em dash
+        // --- Dashes (mode-sensitive) ---
+        if (mode == UnicodeNormalizationMode.Latex)
+        {
+            result = result.Replace("\u2014", "---");  // — em dash → LaTeX ---
+            result = result.Replace("\u2013", "--");   // – en dash → LaTeX --
+        }
+        else // Ascii
+        {
+            result = result.Replace("\u2013", "-");    // – en dash → single hyphen
+            result = result.Replace("\u2014", "--");   // — em dash → double hyphen
+        }
         result = result.Replace('\u2010', '-');   // ‐ hyphen
         result = result.Replace('\u2011', '-');   // ‑ non-breaking hyphen
         result = result.Replace('\u2012', '-');   // ‒ figure dash
 
-        // Ellipsis → three dots
+        // --- Ellipsis ---
         result = result.Replace("\u2026", "...");  // … horizontal ellipsis
 
-        // Prime marks → ASCII equivalents
+        // --- Prime marks → ASCII equivalents ---
         result = result.Replace('\u2032', '\'');  // ′ prime
         result = result.Replace('\u2033', '"');   // ″ double prime
 
-        // Bullet → ASCII asterisk
+        // --- Bullet → ASCII asterisk ---
         result = result.Replace('\u2022', '*');   // • bullet
-
-        // Soft hyphen → remove (invisible formatting hint)
-        result = result.Replace("\u00AD", "");    // ­ soft hyphen
 
         return result;
     }
