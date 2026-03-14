@@ -250,7 +250,7 @@ public static partial class OutputCleaner
     ///   <item><see cref="UnicodeNormalizationMode.Latex"/> — maps to LaTeX-idiomatic sequences
     ///         (en-dash → <c>--</c>, em-dash → <c>---</c>).</item>
     /// </list>
-    /// Non-breaking spaces (U+00A0) are always normalised to regular spaces.
+    /// Non-breaking spaces (U+00A0) are always normalized to regular spaces.
     /// Soft hyphens (U+00AD) are always removed.
     /// </summary>
     public static string NormalizeUnicodePunctuation(
