@@ -89,6 +89,12 @@ The init system is mandatory to prevent Chromium zombie processes from exhaustin
 
 ## HTTP API
 
+Distillate runs in one of two mutually exclusive modes, selected by the `MODE` environment variable. The two modes are never active simultaneously.
+
+### Mode: REST (default, `MODE=rest`)
+
+The REST mode exposes a JSON API suitable for programmatic and automation use.
+
 ### Health Check
 
 ```text
@@ -291,9 +297,43 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 
 * Concurrency is enforced via `SemaphoreSlim`
 * Requests attempt immediate acquisition:
-  * Success ? processing begins
-  * Failure ? HTTP 503 Service Unavailable
+  * Success → processing begins
+  * Failure → HTTP 503 Service Unavailable (REST) or an error message in the HTML page (Live)
 * No waiting, no queuing
+
+---
+
+### Mode: Live (`MODE=live`)
+
+Live mode provides an interactive web UI for browser-based usage. When active, the REST endpoints (`POST /process`, `GET /` JSON info) are **not** registered.
+
+#### Endpoints
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | / | HTML page with a URL input form |
+| GET | /health | Health check (JSON, same as REST mode) |
+| POST | /live | Accepts a URL via HTML form submission, processes it, and returns the reader-view HTML with embedded images |
+
+#### `GET /`
+
+Returns an HTML page containing a form with a single URL input field. The form submits via `POST` to `/live`.
+
+#### `POST /live`
+
+Accepts a form-encoded body with a single field `url`. The service:
+
+1. Validates the URL (non-empty, within `MAX_URL_LENGTH`)
+2. Acquires a concurrency slot (returns an error page if at capacity)
+3. Processes the URL with `includeCleanHtmlEmbeddedImages=true`
+4. Returns the extracted article HTML directly as a rendered web page with embedded images
+
+On success, the response is a full HTML page containing:
+* A sticky toolbar with a link back to the input form and a link to the original page
+* The extracted article content with images embedded as base64 data URIs
+* Processing time metadata
+
+On failure, the response is the input form page with an error message.
 
 ---
 
@@ -301,6 +341,7 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 
 | Name | Default | Description |
 | ---- | ------- | ----------- |
+| MODE | "rest" | Service mode: "rest" (JSON API) or "live" (interactive web UI). Mutually exclusive. |
 | CONCURRENCY | 1 | Max simultaneous requests |
 | MAX_TIME_MS | 180000 | Hard timeout per request (3 minutes) |
 | MAX_IMAGE_BYTES | 209715200 | Global image embedding budget (200MB) |

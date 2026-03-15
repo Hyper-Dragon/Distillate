@@ -1,6 +1,7 @@
 using System.Runtime;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Web;
 using Distillate.Core.Configuration;
 using Distillate.Core.Conversion;
 using Distillate.Core.Extraction;
@@ -27,6 +28,7 @@ builder.Services.Configure<DistillateOptions>(options =>
     options.LogLevel = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
     options.ScrollDelayMs = GetEnvInt("SCROLL_DELAY_MS", 100);
     options.MaxV8HeapSizeMb = GetEnvInt("MAX_V8_HEAP_SIZE_MB", 512);
+    options.Mode = Environment.GetEnvironmentVariable("MODE") ?? "rest";
 });
 
 // Configure logging
@@ -66,14 +68,15 @@ var options = app.Services.GetRequiredService<IOptions<DistillateOptions>>().Val
 var semaphore = new SemaphoreSlim(options.Concurrency, options.Concurrency);
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-logger.LogInformation("Distillate starting with Concurrency={Concurrency}, MaxTimeMs={MaxTimeMs}, MaxImageBytes={MaxImageBytes}, GcMode={GcMode}",
-    options.Concurrency, options.MaxTimeMs, options.MaxImageBytes, options.GcMode);
+logger.LogInformation("Distillate starting with Concurrency={Concurrency}, MaxTimeMs={MaxTimeMs}, MaxImageBytes={MaxImageBytes}, GcMode={GcMode}, Mode={Mode}",
+    options.Concurrency, options.MaxTimeMs, options.MaxImageBytes, options.GcMode, options.Mode);
 
-// Health check endpoint
+// Health check endpoint (available in both modes)
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "healthy",
     timestamp = DateTimeOffset.UtcNow,
+    mode = options.Mode,
     concurrency = new
     {
         max = options.Concurrency,
@@ -81,82 +84,156 @@ app.MapGet("/health", () => Results.Ok(new
     }
 }));
 
-// Root info endpoint
-app.MapGet("/", () => Results.Ok(new
+if (options.IsLiveMode)
 {
-    service = "Distillate",
-    version = "v1.1",
-    description = "Capacity-bound reader view extraction service",
-    endpoints = new
-    {
-        health = "GET /health",
-        process = "POST /process"
-    },
-    example = new
-    {
-        url = "https://example.com/article",
-        engine = "smartreader",
-        includeMarkdownNoImages = true,
-        includePlainText = true,
-        includeCleanHtmlNoImages = false,
-        includeCleanHtmlLinkedImages = false,
-        includeCleanHtmlEmbeddedImages = false,
-        includeMarkdownLinkedImages = false,
-        includeSourceHtml = false,
-        includeAllLinksInPage = false,
-        includeAllLinksMedia = false,
-        includeAllLinksAssets = false,
-        includeAllInPageImages = false,
-        includeAllOutOfPageImages = false,
-        imageLinkRewrite = false,
-        pngConversionRequired = false
-    }
-}));
+    logger.LogInformation("Starting in LIVE mode — interactive web UI");
 
-// Main processing endpoint with honest backpressure
-app.MapPost("/process", async (ProcessRequest request, IDistillateService service, HttpContext context) =>
-{
-    var traceId = context.Request.Headers["X-Trace-Id"].FirstOrDefault() ?? Guid.NewGuid().ToString("N");
-    
-    // Validate URL length
-    if (request.Url.Length > options.MaxUrlLength)
+    // Root endpoint serves the live mode HTML page
+    app.MapGet("/", () => Results.Content(LiveModeHtml(), "text/html"));
+
+    // Live processing endpoint — accepts a URL and returns reader-view HTML
+    app.MapPost("/live", async (HttpContext context, IDistillateService service) =>
     {
-        return Results.BadRequest(new ProcessResponse
+        var form = await context.Request.ReadFormAsync();
+        var url = form["url"].ToString().Trim();
+
+        if (string.IsNullOrEmpty(url))
         {
-            Success = false,
-            RequestedUrl = request.Url,
-            ProcessedAt = DateTimeOffset.UtcNow,
-            ProcessingTimeMs = 0,
-            CompletionFlags = 0,
-            Errors = [$"URL exceeds maximum length of {options.MaxUrlLength} characters"],
-            TraceId = traceId
-        });
-    }
-
-    // Honest backpressure: immediate check, no waiting
-    if (!semaphore.Wait(0))
-    {
-        logger.LogWarning("Request rejected due to capacity limit. TraceId: {TraceId}", traceId);
-        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-    }
-
-    try
-    {
-        var result = await service.ProcessAsync(request, traceId, context.RequestAborted);
-        return Results.Ok(result);
-    }
-    finally
-    {
-        semaphore.Release();
-
-        // Aggressive GC if configured
-        if (options.IsAggressiveGc)
-        {
-            GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect(2, GCCollectionMode.Forced, true, true);
+            return Results.Content(LiveModeHtml("Please enter a URL."), "text/html");
         }
-    }
-});
+
+        if (url.Length > options.MaxUrlLength)
+        {
+            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters."), "text/html");
+        }
+
+        var traceId = Guid.NewGuid().ToString("N");
+
+        // Honest backpressure: immediate check, no waiting
+        if (!semaphore.Wait(0))
+        {
+            logger.LogWarning("Live request rejected due to capacity limit. TraceId: {TraceId}", traceId);
+            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly."), "text/html");
+        }
+
+        try
+        {
+            var request = new ProcessRequest
+            {
+                Url = url,
+                IncludeCleanHtmlEmbeddedImages = true,
+                IncludeMarkdownNoImages = false,
+                IncludePlainText = false
+            };
+
+            var result = await service.ProcessAsync(request, traceId, context.RequestAborted);
+
+            if (!result.Success)
+            {
+                var errorMsg = result.Errors != null ? string.Join("; ", result.Errors) : "Processing failed.";
+                return Results.Content(LiveModeHtml(errorMsg), "text/html");
+            }
+
+            // Return the clean HTML with embedded images directly
+            var html = result.CleanHtmlEmbeddedImages ?? "<p>No content could be extracted.</p>";
+            var title = HttpUtility.HtmlEncode(result.Title ?? "Distillate — Reader View");
+            return Results.Content(LiveResultHtml(title, html, url, result.ProcessingTimeMs), "text/html");
+        }
+        finally
+        {
+            semaphore.Release();
+
+            // Aggressive GC if configured
+            if (options.IsAggressiveGc)
+            {
+                GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                GC.Collect(2, GCCollectionMode.Forced, true, true);
+            }
+        }
+    });
+}
+else
+{
+    logger.LogInformation("Starting in REST mode — JSON API");
+
+    // Root info endpoint
+    app.MapGet("/", () => Results.Ok(new
+    {
+        service = "Distillate",
+        version = "v1.1",
+        description = "Capacity-bound reader view extraction service",
+        mode = "rest",
+        endpoints = new
+        {
+            health = "GET /health",
+            process = "POST /process"
+        },
+        example = new
+        {
+            url = "https://example.com/article",
+            engine = "smartreader",
+            includeMarkdownNoImages = true,
+            includePlainText = true,
+            includeCleanHtmlNoImages = false,
+            includeCleanHtmlLinkedImages = false,
+            includeCleanHtmlEmbeddedImages = false,
+            includeMarkdownLinkedImages = false,
+            includeSourceHtml = false,
+            includeAllLinksInPage = false,
+            includeAllLinksMedia = false,
+            includeAllLinksAssets = false,
+            includeAllInPageImages = false,
+            includeAllOutOfPageImages = false,
+            imageLinkRewrite = false,
+            pngConversionRequired = false
+        }
+    }));
+
+    // Main processing endpoint with honest backpressure
+    app.MapPost("/process", async (ProcessRequest request, IDistillateService service, HttpContext context) =>
+    {
+        var traceId = context.Request.Headers["X-Trace-Id"].FirstOrDefault() ?? Guid.NewGuid().ToString("N");
+        
+        // Validate URL length
+        if (request.Url.Length > options.MaxUrlLength)
+        {
+            return Results.BadRequest(new ProcessResponse
+            {
+                Success = false,
+                RequestedUrl = request.Url,
+                ProcessedAt = DateTimeOffset.UtcNow,
+                ProcessingTimeMs = 0,
+                CompletionFlags = 0,
+                Errors = [$"URL exceeds maximum length of {options.MaxUrlLength} characters"],
+                TraceId = traceId
+            });
+        }
+
+        // Honest backpressure: immediate check, no waiting
+        if (!semaphore.Wait(0))
+        {
+            logger.LogWarning("Request rejected due to capacity limit. TraceId: {TraceId}", traceId);
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        try
+        {
+            var result = await service.ProcessAsync(request, traceId, context.RequestAborted);
+            return Results.Ok(result);
+        }
+        finally
+        {
+            semaphore.Release();
+
+            // Aggressive GC if configured
+            if (options.IsAggressiveGc)
+            {
+                GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                GC.Collect(2, GCCollectionMode.Forced, true, true);
+            }
+        }
+    });
+}
 
 // Configure port (only override if ASPNETCORE_URLS isn't set)
 var urlsEnv = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
@@ -185,6 +262,82 @@ static long GetEnvLong(string name, long defaultValue)
 {
     var value = Environment.GetEnvironmentVariable(name);
     return long.TryParse(value, out var result) ? result : defaultValue;
+}
+
+static string LiveModeHtml(string? errorMessage = null)
+{
+    var errorDiv = errorMessage != null
+        ? $"""<div class="error">{HttpUtility.HtmlEncode(errorMessage)}</div>"""
+        : "";
+
+    return $$"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Distillate — Live Mode</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f5f5f5; color: #333; margin: 0; padding: 2rem; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+        .container { max-width: 600px; width: 100%; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 2rem; }
+        h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+        p.subtitle { margin: 0 0 1.5rem; color: #666; font-size: 0.9rem; }
+        form { display: flex; gap: 0.5rem; }
+        input[type="url"] { flex: 1; padding: 0.6rem 0.75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
+        input[type="url"]:focus { outline: none; border-color: #0066cc; box-shadow: 0 0 0 2px rgba(0,102,204,0.2); }
+        button { padding: 0.6rem 1.25rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; white-space: nowrap; }
+        button:hover { background: #0052a3; }
+        .error { margin-top: 1rem; padding: 0.75rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; color: #b91c1c; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Distillate</h1>
+        <p class="subtitle">Enter a URL to extract its reader view with embedded images.</p>
+        <form method="post" action="/live">
+            <input type="url" name="url" placeholder="https://example.com/article" required autofocus />
+            <button type="submit">Extract</button>
+        </form>
+        {{errorDiv}}
+    </div>
+</body>
+</html>
+""";
+}
+
+static string LiveResultHtml(string title, string articleHtml, string sourceUrl, double processingTimeMs)
+{
+    return $$"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{title}}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f5f5f5; color: #333; margin: 0; padding: 0; }
+        .toolbar { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+        .toolbar a { color: #0066cc; text-decoration: none; font-size: 0.9rem; }
+        .toolbar a:hover { text-decoration: underline; }
+        .toolbar .meta { margin-left: auto; color: #999; font-size: 0.8rem; }
+        .article { max-width: 800px; margin: 2rem auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 2rem; }
+        .article img { max-width: 100%; height: auto; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <a href="/">&#8592; New extraction</a>
+        <a href="{{HttpUtility.HtmlAttributeEncode(sourceUrl)}}" target="_blank" rel="noopener">Original page &#8599;</a>
+        <span class="meta">{{processingTimeMs:F0}} ms</span>
+    </div>
+    <div class="article">
+        {{articleHtml}}
+    </div>
+</body>
+</html>
+""";
 }
 
 // Expose Program class for testing

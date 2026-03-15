@@ -15,6 +15,7 @@ services:
       - LOG_LEVEL=Information
       - PORT=8080
       - CHROMIUM_PATH=/usr/bin/chromium
+      - MODE=rest
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
