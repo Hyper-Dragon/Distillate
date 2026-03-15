@@ -134,7 +134,9 @@ if (options.IsLiveMode)
                 return Results.Content(LiveModeHtml(errorMsg), "text/html");
             }
 
-            // Return the clean HTML with embedded images directly
+            // Return the clean HTML with embedded images directly.
+            // This HTML has been through SmartReader (Mozilla Readability) and HtmlArticleCleaner,
+            // which strip scripts, styles, forms, and other non-article elements.
             var html = result.CleanHtmlEmbeddedImages ?? "<p>No content could be extracted.</p>";
             var title = HttpUtility.HtmlEncode(result.Title ?? "Distillate — Reader View");
             return Results.Content(LiveResultHtml(title, html, url, result.ProcessingTimeMs), "text/html");

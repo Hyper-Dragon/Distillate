@@ -108,8 +108,9 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
 
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("text/html", response.Content.Headers.ContentType?.MediaType);
-        // Should show error in the HTML page (either error div or result page)
+        // Invalid URL should result in an error shown in the HTML page
         Assert.Contains("<html", body);
+        Assert.Contains("error", body, StringComparison.OrdinalIgnoreCase);
     }
 
     public class LiveModeFactory : WebApplicationFactory<Program>
