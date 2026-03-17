@@ -69,7 +69,7 @@ public class DistillateService : IDistillateService
                 request.Url, request.Engine, traceId);
 
             var browserTimer = Stopwatch.StartNew();
-            var sourceHtml = await FetchWithBrowserAsync(uri, effectiveUserAgent, effectiveStabilization, request.Cookies, linkedCts.Token);
+            var sourceHtml = await FetchWithBrowserAsync(uri, effectiveUserAgent, effectiveStabilization, request.Cookies, request.Referer, linkedCts.Token);
             browserTimer.Stop();
             stages?.Add(new StageTiming { Stage = "BrowserFetch", Ms = browserTimer.Elapsed.TotalMilliseconds });
             debugSourceHtmlBytes = sourceHtml?.Length ?? 0;
@@ -368,7 +368,7 @@ public class DistillateService : IDistillateService
         }
     }
 
-    private async Task<string?> FetchWithBrowserAsync(Uri uri, string userAgent, int stabilizationMs, CookieEntry[]? cookies, CancellationToken cancellationToken)
+    private async Task<string?> FetchWithBrowserAsync(Uri uri, string userAgent, int stabilizationMs, CookieEntry[]? cookies, string? referer, CancellationToken cancellationToken)
     {
         IPlaywright? playwright = null;
         IBrowser? browser = null;
@@ -423,7 +423,8 @@ public class DistillateService : IDistillateService
             var response = await page.GotoAsync(uri.AbsoluteUri, new PageGotoOptions
             {
                 WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = _options.MaxTimeMs
+                Timeout = _options.MaxTimeMs,
+                Referer = referer
             });
 
             if (response == null || !response.Ok)

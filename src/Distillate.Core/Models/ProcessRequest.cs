@@ -19,6 +19,9 @@ public record ProcessRequest
     [JsonPropertyName("userAgent")]
     public string? UserAgent { get; init; }
 
+    [JsonPropertyName("referer")]
+    public string? Referer { get; init; }
+
     [JsonPropertyName("cookies")]
     public CookieEntry[]? Cookies { get; init; }
 

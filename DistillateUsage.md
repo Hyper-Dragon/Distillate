@@ -104,6 +104,7 @@ This design ensures:
 | timeoutMs | int | null | Override timeout (capped by server max) |
 | stabilizationMs | int | null | Override DOM stabilization delay |
 | userAgent | string | null | Override User-Agent |
+| referer | string | null | Override HTTP Referer header |
 | cookies | array | null | Cookies to set before navigation |
 
 ---
