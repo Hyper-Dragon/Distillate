@@ -43,6 +43,10 @@ public class DistillateService : IDistillateService
         var errors = new List<string>();
         var completionFlags = CompletionFlag.Complete;
 
+        // Set request-derived flags upfront so they are present even on early-exit error responses
+        if (!request.IncludeSourceHtml)
+            completionFlags |= CompletionFlag.SourceHtmlOmitted;
+
         var effectiveTimeout = request.TimeoutMs ?? _options.MaxTimeMs;
         effectiveTimeout = Math.Min(effectiveTimeout, _options.MaxTimeMs);
 
@@ -60,10 +64,10 @@ public class DistillateService : IDistillateService
         try
         {
             if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri))
-                return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Invalid URL format");
+                return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, completionFlags, "Invalid URL format");
 
             if (uri.Scheme != "http" && uri.Scheme != "https")
-                return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Only HTTP and HTTPS URLs are supported");
+                return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, completionFlags, "Only HTTP and HTTPS URLs are supported");
 
             _logger.LogInformation("Processing URL: {Url} with engine: {Engine}, traceId: {TraceId}",
                 request.Url, request.Engine, traceId);
@@ -75,7 +79,7 @@ public class DistillateService : IDistillateService
             debugSourceHtmlBytes = sourceHtml?.Length ?? 0;
 
             if (string.IsNullOrEmpty(sourceHtml))
-                return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, "Failed to fetch page content");
+                return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, completionFlags, "Failed to fetch page content");
 
             // --- Reader extraction (SmartReader — Mozilla Readability port) ---
             var extractionTimer = Stopwatch.StartNew();
@@ -139,7 +143,8 @@ public class DistillateService : IDistillateService
             {
                 try
                 {
-                    var httpClient = _httpClientFactory.CreateClient("ImageDownloader");
+                    var httpClient = _httpClientFactory.CreateClient(
+                        request.ClearCookies ? "ImageDownloaderNoCookies" : "ImageDownloader");
                     var processor = new ImageProcessor(
                         _loggerFactory.CreateLogger<ImageProcessor>(),
                         httpClient,
@@ -237,7 +242,8 @@ public class DistillateService : IDistillateService
             {
                 try
                 {
-                    var httpClient = _httpClientFactory.CreateClient("ImageDownloader");
+                    var httpClient = _httpClientFactory.CreateClient(
+                        request.ClearCookies ? "ImageDownloaderNoCookies" : "ImageDownloader");
                     using var featuredCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
                     featuredCts.CancelAfter(10_000);
                     using var response = await httpClient.GetAsync(
@@ -307,8 +313,7 @@ public class DistillateService : IDistillateService
             string? responseSourceHtml = null;
             if (request.IncludeSourceHtml)
                 responseSourceHtml = sourceHtml;
-            else
-                completionFlags |= CompletionFlag.SourceHtmlOmitted;
+            // Note: SourceHtmlOmitted flag was already set upfront based on IncludeSourceHtml
 
             stopwatch.Stop();
 
@@ -354,12 +359,12 @@ public class DistillateService : IDistillateService
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
             _logger.LogWarning("Request timed out after {Timeout}ms", effectiveTimeout);
-            return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, $"Request timed out after {effectiveTimeout}ms");
+            return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, completionFlags, $"Request timed out after {effectiveTimeout}ms");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Processing failed for {Url}", request.Url);
-            return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, ex.Message);
+            return CreateErrorResponse(request.Url, stopwatch.Elapsed.TotalMilliseconds, traceId, completionFlags, ex.Message);
         }
         finally
         {
@@ -498,7 +503,7 @@ public class DistillateService : IDistillateService
         GC.Collect(2, GCCollectionMode.Forced, true, true);
     }
 
-    private static ProcessResponse CreateErrorResponse(string url, double processingTimeMs, string traceId, string error)
+    private static ProcessResponse CreateErrorResponse(string url, double processingTimeMs, string traceId, CompletionFlag completionFlags, string error)
     {
         return new ProcessResponse
         {
@@ -506,7 +511,7 @@ public class DistillateService : IDistillateService
             RequestedUrl = url,
             ProcessedAt = DateTimeOffset.UtcNow,
             ProcessingTimeMs = processingTimeMs,
-            CompletionFlags = 0,
+            CompletionFlags = (int)completionFlags,
             Errors = [error],
             TraceId = traceId
         };

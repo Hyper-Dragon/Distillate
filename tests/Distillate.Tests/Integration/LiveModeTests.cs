@@ -33,6 +33,9 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
         Assert.Contains("method=\"get\"", body);
         Assert.Contains("action=\"/live\"", body);
         Assert.Contains("name=\"url\"", body);
+        Assert.Contains("name=\"userAgent\"", body);
+        Assert.Contains("name=\"referer\"", body);
+        Assert.Contains("name=\"clearCookies\"", body);
     }
 
     [Fact]
@@ -121,6 +124,44 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Live_WithUserAgentAndReferer_FormFieldsArePresentOnError()
+    {
+        // When validation fails the error page should repopulate the advanced fields
+        var response = await _client.GetAsync("/live?url=&userAgent=MyAgent%2F1.0&referer=https%3A%2F%2Fexample.com%2F");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("MyAgent/1.0", body);
+        Assert.Contains("https://example.com/", body);
+    }
+
+    [Fact]
+    public async Task Live_EmptyUserAgentAndReferer_FormHasFields()
+    {
+        // The form must always contain user-agent, referer, and clearCookies inputs
+        var response = await _client.GetAsync("/live");
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("name=\"userAgent\"", body);
+        Assert.Contains("name=\"referer\"", body);
+        Assert.Contains("name=\"clearCookies\"", body);
+    }
+
+    [Fact]
+    public async Task Live_ClearCookiesChecked_CheckboxRepopulatedOnError()
+    {
+        // When validation fails with clearCookies=on the error page must keep the checkbox checked
+        var response = await _client.GetAsync("/live?url=&clearCookies=on");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        // The rendered checkbox should carry the "checked" attribute
+        Assert.Contains("checked", body);
     }
 
     public class LiveModeFactory : WebApplicationFactory<Program>

@@ -25,6 +25,13 @@ public record ProcessRequest
     [JsonPropertyName("cookies")]
     public CookieEntry[]? Cookies { get; init; }
 
+    /// <summary>
+    /// When true, cookies are not sent or stored during image downloads for this request.
+    /// Default false — cookies are used normally.
+    /// </summary>
+    [JsonPropertyName("clearCookies")]
+    public bool ClearCookies { get; init; } = false;
+
     // --- Content output flags ---
 
     [JsonPropertyName("includeSourceHtml")]
