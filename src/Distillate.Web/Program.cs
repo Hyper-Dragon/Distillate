@@ -51,11 +51,15 @@ builder.Services.AddSingleton<MarkdownConverter>();
 builder.Services.AddScoped<IDistillateService, DistillateService>();
 
 // Configure HttpClient for image downloading
+// UseCookies = false ensures cookies are not accumulated across requests
 builder.Services.AddHttpClient("ImageDownloader", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<DistillateOptions>>().Value;
     client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
     client.Timeout = TimeSpan.FromSeconds(30);
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    UseCookies = false
 });
 
 // Enable Server GC
@@ -97,15 +101,21 @@ if (options.IsLiveMode)
     app.MapGet("/live", async (HttpContext context, IDistillateService service) =>
     {
         var url = context.Request.Query["url"].ToString().Trim();
+        var userAgentParam = context.Request.Query["userAgent"].ToString().Trim();
+        var refererParam = context.Request.Query["referer"].ToString().Trim();
+
+        // Use null (fall back to default) when the field is empty
+        var effectiveUserAgent = string.IsNullOrEmpty(userAgentParam) ? null : userAgentParam;
+        var effectiveReferer   = string.IsNullOrEmpty(refererParam)   ? null : refererParam;
 
         if (string.IsNullOrEmpty(url))
         {
-            return Results.Content(LiveModeHtml("Please enter a URL."), "text/html");
+            return Results.Content(LiveModeHtml("Please enter a URL.", userAgentParam, refererParam), "text/html");
         }
 
         if (url.Length > options.MaxUrlLength)
         {
-            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters."), "text/html");
+            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters.", userAgentParam, refererParam), "text/html");
         }
 
         var traceId = Guid.NewGuid().ToString("N");
@@ -114,7 +124,7 @@ if (options.IsLiveMode)
         if (!semaphore.Wait(0))
         {
             logger.LogWarning("Live request rejected due to capacity limit. TraceId: {TraceId}", traceId);
-            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly."), "text/html");
+            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly.", userAgentParam, refererParam), "text/html");
         }
 
         try
@@ -122,6 +132,8 @@ if (options.IsLiveMode)
             var request = new ProcessRequest
             {
                 Url = url,
+                UserAgent = effectiveUserAgent,
+                Referer = effectiveReferer,
                 IncludeCleanHtmlEmbeddedImages = true,
                 IncludeMarkdownNoImages = false,
                 IncludePlainText = false
@@ -132,7 +144,7 @@ if (options.IsLiveMode)
             if (!result.Success)
             {
                 var errorMsg = result.Errors != null ? string.Join("; ", result.Errors) : "Processing failed.";
-                return Results.Content(LiveModeHtml(errorMsg), "text/html");
+                return Results.Content(LiveModeHtml(errorMsg, userAgentParam, refererParam), "text/html");
             }
 
             // Return the clean HTML with embedded images directly.
@@ -267,11 +279,14 @@ static long GetEnvLong(string name, long defaultValue)
     return long.TryParse(value, out var result) ? result : defaultValue;
 }
 
-static string LiveModeHtml(string? errorMessage = null)
+static string LiveModeHtml(string? errorMessage = null, string? userAgentValue = null, string? refererValue = null)
 {
     var errorDiv = errorMessage != null
         ? $"""<div class="error">{HttpUtility.HtmlEncode(errorMessage)}</div>"""
         : "";
+
+    var userAgentAttr = HtmlValueAttr(userAgentValue);
+    var refererAttr   = HtmlValueAttr(refererValue);
 
     return $$"""
 <!DOCTYPE html>
@@ -286,11 +301,19 @@ static string LiveModeHtml(string? errorMessage = null)
         .container { max-width: 600px; width: 100%; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 2rem; }
         h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
         p.subtitle { margin: 0 0 1.5rem; color: #666; font-size: 0.9rem; }
-        form { display: flex; gap: 0.5rem; }
-        input[type="url"] { flex: 1; padding: 0.6rem 0.75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
-        input[type="url"]:focus { outline: none; border-color: #0066cc; box-shadow: 0 0 0 2px rgba(0,102,204,0.2); }
+        form { display: flex; flex-direction: column; gap: 0.75rem; }
+        .url-row { display: flex; gap: 0.5rem; }
+        input[type="url"], input[type="text"] { padding: 0.6rem 0.75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; width: 100%; }
+        .url-row input[type="url"] { flex: 1; width: auto; }
+        input[type="url"]:focus, input[type="text"]:focus { outline: none; border-color: #0066cc; box-shadow: 0 0 0 2px rgba(0,102,204,0.2); }
         button { padding: 0.6rem 1.25rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; white-space: nowrap; }
         button:hover { background: #0052a3; }
+        label { font-size: 0.85rem; color: #555; margin-bottom: 0.15rem; display: block; }
+        .field { display: flex; flex-direction: column; }
+        details { margin-top: 0.25rem; }
+        summary { font-size: 0.85rem; color: #666; cursor: pointer; user-select: none; }
+        summary:hover { color: #0066cc; }
+        .optional-fields { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }
         .error { margin-top: 1rem; padding: 0.75rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; color: #b91c1c; font-size: 0.9rem; }
     </style>
 </head>
@@ -299,8 +322,23 @@ static string LiveModeHtml(string? errorMessage = null)
         <h1>Distillate</h1>
         <p class="subtitle">Enter a URL to extract its reader view with embedded images.</p>
         <form method="get" action="/live">
-            <input type="url" name="url" placeholder="https://example.com/article" required autofocus />
-            <button type="submit">Extract</button>
+            <div class="url-row">
+                <input type="url" name="url" placeholder="https://example.com/article" required autofocus />
+                <button type="submit">Extract</button>
+            </div>
+            <details>
+                <summary>Advanced options</summary>
+                <div class="optional-fields">
+                    <div class="field">
+                        <label for="userAgent">User-Agent (leave blank for default)</label>
+                        <input type="text" id="userAgent" name="userAgent" placeholder="Mozilla/5.0 …"{{userAgentAttr}}/>
+                    </div>
+                    <div class="field">
+                        <label for="referer">Referer (leave blank for none)</label>
+                        <input type="text" id="referer" name="referer" placeholder="https://example.com/"{{refererAttr}}/>
+                    </div>
+                </div>
+            </details>
         </form>
         {{errorDiv}}
     </div>
@@ -342,6 +380,10 @@ static string LiveResultHtml(string title, string articleHtml, string sourceUrl,
 </html>
 """;
 }
+
+// Returns a ` value="..."` HTML attribute string for the given value, or an empty string when value is null.
+static string HtmlValueAttr(string? value) =>
+    value != null ? $""" value="{HttpUtility.HtmlAttributeEncode(value)}" """ : "";
 
 // Expose Program class for testing
 public partial class Program { }
