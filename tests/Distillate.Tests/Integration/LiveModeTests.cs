@@ -35,7 +35,11 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
         Assert.Contains("name=\"url\"", body);
         Assert.Contains("name=\"userAgent\"", body);
         Assert.Contains("name=\"referer\"", body);
+        Assert.Contains("name=\"cookies\"", body);
         Assert.Contains("name=\"clearCookies\"", body);
+        Assert.Contains("name=\"pngConvert\"", body);
+        Assert.Contains("id=\"curlOutput\"", body);
+        Assert.Contains("readonly", body);
     }
 
     [Fact]
@@ -142,13 +146,15 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
     [Fact]
     public async Task Live_EmptyUserAgentAndReferer_FormHasFields()
     {
-        // The form must always contain user-agent, referer, and clearCookies inputs
+        // The form must always contain user-agent, referer, cookies, clearCookies, and pngConvert inputs
         var response = await _client.GetAsync("/live");
 
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("name=\"userAgent\"", body);
         Assert.Contains("name=\"referer\"", body);
+        Assert.Contains("name=\"cookies\"", body);
         Assert.Contains("name=\"clearCookies\"", body);
+        Assert.Contains("name=\"pngConvert\"", body);
     }
 
     [Fact]
@@ -162,6 +168,33 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
         var body = await response.Content.ReadAsStringAsync();
         // The rendered checkbox should carry the "checked" attribute
         Assert.Contains("checked", body);
+    }
+
+    [Fact]
+    public async Task Live_PngConvertChecked_CheckboxRepopulatedOnError()
+    {
+        // When validation fails with pngConvert=on the error page must keep the checkbox checked
+        var response = await _client.GetAsync("/live?url=&pngConvert=on");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("checked", body);
+        Assert.Contains("Convert images to PNG", body);
+    }
+
+    [Fact]
+    public async Task Live_WithCookies_CookiesRepopulatedOnError()
+    {
+        // When validation fails the cookies textarea should be repopulated
+        var cookies = Uri.EscapeDataString("session=abc123\ntoken=xyz");
+        var response = await _client.GetAsync($"/live?url=&cookies={cookies}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("session=abc123", body);
+        Assert.Contains("token=xyz", body);
     }
 
     public class LiveModeFactory : WebApplicationFactory<Program>

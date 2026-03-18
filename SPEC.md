@@ -165,6 +165,7 @@ POST /process
 | userAgent | string? | null | Override User-Agent |
 | referer | string? | null | Override HTTP Referer header |
 | cookies | array? | null | Cookies to set before navigation |
+| clearCookies | bool | false | When true, cookies are not sent or stored during image downloads for this request |
 | includeSourceHtml | bool | false | Raw browser-captured HTML before reader extraction |
 | includeCleanHtmlEmbeddedImages | bool | false | Reader HTML with images inlined as base64 data URIs |
 | includeCleanHtmlLinkedImages | bool | false | Reader HTML with images as local filenames |
@@ -307,23 +308,36 @@ The `localName` field on each `ImageEntry` is the authoritative filename. Downst
 
 ### Mode: Live (`MODE=live`)
 
-Live mode provides an interactive web UI for browser-based usage. When active, the REST endpoints (`POST /process`, `GET /` JSON info) are **not** registered.
+Live mode provides an interactive dark-themed web UI for browser-based usage. When active, the REST endpoints (`POST /process`, `GET /` JSON info) are **not** registered.
 
 #### Endpoints
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | / | HTML page with a URL input form |
+| GET | / | HTML page with a URL input form and advanced options |
 | GET | /health | Health check (JSON, same as REST mode) |
 | GET | /live?url=\<encoded-url\> | Process a URL and return the reader-view HTML with embedded images |
 
 #### `GET /`
 
-Returns an HTML page containing a form with a single URL input field. The form submits via `GET` to `/live`, resulting in a `GET /live?url=<encoded-url>` request.
+Returns an HTML page containing a form with a URL input field and advanced options (collapsible). The form submits via `GET` to `/live`, constructing the query string automatically.
+
+**Form fields:**
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| url | text (required) | Target URL to extract |
+| userAgent | text | User-Agent override (blank = server default) |
+| referer | text | HTTP Referer header override |
+| cookies | textarea | Cookies to inject, one `name=value` pair per line |
+| clearCookies | checkbox | Disable cookie storage for this request |
+| pngConvert | checkbox | Convert all fetched images to PNG |
+
+The page also includes a read-only textarea that displays the equivalent `curl` command for the REST API (`POST /process`), updating in real time as form fields change. This serves as a testing companion for the REST interface.
 
 #### `GET /live?url=<encoded-url>`
 
-Accepts the target URL as a query parameter. Users can activate the live view in two ways:
+Accepts the target URL and optional parameters as query parameters. Users can activate the live view in two ways:
 
 1. **Form submission** — via the `GET /` page; the browser constructs the query string automatically
 2. **Direct link or bookmark** — navigate directly to `http://<host>/live?url=https://example.com/article`
@@ -332,7 +346,7 @@ When a `url` query parameter is present, the service:
 
 1. Validates the URL (non-empty, within `MAX_URL_LENGTH`)
 2. Acquires a concurrency slot (returns an error page if at capacity)
-3. Processes the URL with `includeCleanHtmlEmbeddedImages=true`
+3. Processes the URL with `includeCleanHtmlEmbeddedImages=true` (plus any advanced options provided)
 4. Returns the extracted article HTML directly as a rendered web page with embedded images
 
 When the `url` query parameter is absent or empty, the service returns the input form page (with an error if `url` was explicitly provided but empty).
@@ -342,7 +356,7 @@ On success, the response is a full HTML page containing:
 * The extracted article content with images embedded as base64 data URIs
 * Processing time metadata
 
-On failure, the response is the input form page with an error message.
+On failure, the response is the input form page with an error message and all previously entered field values preserved.
 
 ---
 

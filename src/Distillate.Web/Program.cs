@@ -111,23 +111,51 @@ if (options.IsLiveMode)
         var url = context.Request.Query["url"].ToString().Trim();
         var userAgentParam = context.Request.Query["userAgent"].ToString().Trim();
         var refererParam = context.Request.Query["referer"].ToString().Trim();
-        // HTML checkbox sends "on" when checked; absent means unchecked
+        var cookiesParam = context.Request.Query["cookies"].ToString().Trim();
+        // HTML checkboxes send "on" when checked; absent means unchecked
         var clearCookiesParam = context.Request.Query["clearCookies"].ToString();
         var clearCookies = string.Equals(clearCookiesParam, "on", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(clearCookiesParam, "true", StringComparison.OrdinalIgnoreCase);
+        var pngConvertParam = context.Request.Query["pngConvert"].ToString();
+        var pngConvert = string.Equals(pngConvertParam, "on", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(pngConvertParam, "true", StringComparison.OrdinalIgnoreCase);
 
         // Use null (fall back to default) when the field is empty
         var effectiveUserAgent = string.IsNullOrEmpty(userAgentParam) ? null : userAgentParam;
         var effectiveReferer   = string.IsNullOrEmpty(refererParam)   ? null : refererParam;
 
+        // Parse cookies from "name=value" lines (one per line)
+        CookieEntry[]? parsedCookies = null;
+        if (!string.IsNullOrWhiteSpace(cookiesParam))
+        {
+            var entries = cookiesParam
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(line =>
+                {
+                    var eqIndex = line.IndexOf('=');
+                    if (eqIndex <= 0) return null; // skip lines with no '=' (-1) or empty name (0)
+                    return new CookieEntry
+                    {
+                        Name = line[..eqIndex].Trim(),
+                        Value = line[(eqIndex + 1)..].Trim()
+                    };
+                })
+                .Where(c => c != null)
+                .Cast<CookieEntry>()
+                .ToArray();
+
+            if (entries.Length > 0)
+                parsedCookies = entries;
+        }
+
         if (string.IsNullOrEmpty(url))
         {
-            return Results.Content(LiveModeHtml("Please enter a URL.", userAgentParam, refererParam, clearCookies), "text/html");
+            return Results.Content(LiveModeHtml("Please enter a URL.", userAgentParam, refererParam, cookiesParam, clearCookies, pngConvert), "text/html");
         }
 
         if (url.Length > options.MaxUrlLength)
         {
-            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters.", userAgentParam, refererParam, clearCookies), "text/html");
+            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters.", userAgentParam, refererParam, cookiesParam, clearCookies, pngConvert), "text/html");
         }
 
         var traceId = Guid.NewGuid().ToString("N");
@@ -136,7 +164,7 @@ if (options.IsLiveMode)
         if (!semaphore.Wait(0))
         {
             logger.LogWarning("Live request rejected due to capacity limit. TraceId: {TraceId}", traceId);
-            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly.", userAgentParam, refererParam, clearCookies), "text/html");
+            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly.", userAgentParam, refererParam, cookiesParam, clearCookies, pngConvert), "text/html");
         }
 
         try
@@ -146,7 +174,9 @@ if (options.IsLiveMode)
                 Url = url,
                 UserAgent = effectiveUserAgent,
                 Referer = effectiveReferer,
+                Cookies = parsedCookies,
                 ClearCookies = clearCookies,
+                PngConversionRequired = pngConvert,
                 IncludeCleanHtmlEmbeddedImages = true,
                 IncludeMarkdownNoImages = false,
                 IncludePlainText = false
@@ -157,7 +187,7 @@ if (options.IsLiveMode)
             if (!result.Success)
             {
                 var errorMsg = result.Errors != null ? string.Join("; ", result.Errors) : "Processing failed.";
-                return Results.Content(LiveModeHtml(errorMsg, userAgentParam, refererParam, clearCookies), "text/html");
+                return Results.Content(LiveModeHtml(errorMsg, userAgentParam, refererParam, cookiesParam, clearCookies, pngConvert), "text/html");
             }
 
             // Return the clean HTML with embedded images directly.
@@ -292,7 +322,7 @@ static long GetEnvLong(string name, long defaultValue)
     return long.TryParse(value, out var result) ? result : defaultValue;
 }
 
-static string LiveModeHtml(string? errorMessage = null, string? userAgentValue = null, string? refererValue = null, bool clearCookies = false)
+static string LiveModeHtml(string? errorMessage = null, string? userAgentValue = null, string? refererValue = null, string? cookiesValue = null, bool clearCookies = false, bool pngConvert = false)
 {
     var errorDiv = errorMessage != null
         ? $"""<div class="error">{HttpUtility.HtmlEncode(errorMessage)}</div>"""
@@ -300,7 +330,9 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
 
     var userAgentAttr    = HtmlValueAttr(userAgentValue);
     var refererAttr      = HtmlValueAttr(refererValue);
+    var cookiesContent   = HttpUtility.HtmlEncode(cookiesValue ?? "");
     var clearCookiesAttr = clearCookies ? " checked" : "";
+    var pngConvertAttr   = pngConvert ? " checked" : "";
 
     return $$"""
 <!DOCTYPE html>
@@ -311,35 +343,45 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
     <title>Distillate — Live Mode</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f5f5f5; color: #333; margin: 0; padding: 2rem; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
-        .container { max-width: 600px; width: 100%; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 2rem; }
-        h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-        p.subtitle { margin: 0 0 1.5rem; color: #666; font-size: 0.9rem; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 2rem; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
+        .container { max-width: 680px; width: 100%; background: #16213e; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); padding: 2rem; border: 1px solid #0f3460; }
+        h1 { margin: 0 0 0.25rem; font-size: 1.6rem; color: #e94560; letter-spacing: 0.02em; }
+        p.subtitle { margin: 0 0 1.5rem; color: #8899aa; font-size: 0.9rem; }
         form { display: flex; flex-direction: column; gap: 0.75rem; }
         .url-row { display: flex; gap: 0.5rem; }
-        input[type="url"], input[type="text"] { padding: 0.6rem 0.75rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; width: 100%; }
+        input[type="url"], input[type="text"], textarea { padding: 0.6rem 0.75rem; border: 1px solid #0f3460; border-radius: 6px; font-size: 1rem; width: 100%; background: #1a1a2e; color: #e0e0e0; transition: border-color 0.2s, box-shadow 0.2s; }
+        textarea { font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace; font-size: 0.85rem; resize: vertical; }
         .url-row input[type="url"] { flex: 1; width: auto; }
-        input[type="url"]:focus, input[type="text"]:focus { outline: none; border-color: #0066cc; box-shadow: 0 0 0 2px rgba(0,102,204,0.2); }
-        button { padding: 0.6rem 1.25rem; background: #0066cc; color: #fff; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; white-space: nowrap; }
-        button:hover { background: #0052a3; }
-        label { font-size: 0.85rem; color: #555; margin-bottom: 0.15rem; display: block; }
+        input[type="url"]:focus, input[type="text"]:focus, textarea:focus { outline: none; border-color: #e94560; box-shadow: 0 0 0 2px rgba(233,69,96,0.25); }
+        input::placeholder, textarea::placeholder { color: #556677; }
+        button { padding: 0.6rem 1.5rem; background: #e94560; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s, transform 0.1s; }
+        button:hover { background: #c73652; }
+        button:active { transform: scale(0.98); }
+        label { font-size: 0.85rem; color: #8899aa; margin-bottom: 0.15rem; display: block; }
         .field { display: flex; flex-direction: column; }
         .checkbox-field { display: flex; align-items: center; gap: 0.5rem; }
         .checkbox-field label { margin-bottom: 0; }
+        input[type="checkbox"] { accent-color: #e94560; width: 16px; height: 16px; }
         details { margin-top: 0.25rem; }
-        summary { font-size: 0.85rem; color: #666; cursor: pointer; user-select: none; }
-        summary:hover { color: #0066cc; }
+        summary { font-size: 0.85rem; color: #8899aa; cursor: pointer; user-select: none; padding: 0.25rem 0; }
+        summary:hover { color: #e94560; }
         .optional-fields { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }
-        .error { margin-top: 1rem; padding: 0.75rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; color: #b91c1c; font-size: 0.9rem; }
+        .error { margin-top: 1rem; padding: 0.75rem; background: rgba(233,69,96,0.12); border: 1px solid rgba(233,69,96,0.35); border-radius: 6px; color: #f5a0b0; font-size: 0.9rem; }
+        .curl-section { margin-top: 1.25rem; }
+        .curl-section label { font-size: 0.85rem; color: #8899aa; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; }
+        .curl-section textarea { background: #111827; color: #9ca3af; border: 1px solid #0f3460; font-size: 0.8rem; line-height: 1.5; }
+        .curl-section .copy-btn { background: transparent; border: 1px solid #0f3460; color: #8899aa; padding: 0.2rem 0.6rem; font-size: 0.75rem; border-radius: 4px; cursor: pointer; font-weight: 400; transition: border-color 0.2s, color 0.2s; }
+        .curl-section .copy-btn:hover { border-color: #e94560; color: #e94560; }
+        .separator { border: none; border-top: 1px solid #0f3460; margin: 0.5rem 0 0; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Distillate</h1>
         <p class="subtitle">Enter a URL to extract its reader view with embedded images.</p>
-        <form method="get" action="/live">
+        <form method="get" action="/live" id="distillateForm">
             <div class="url-row">
-                <input type="url" name="url" placeholder="https://example.com/article" required autofocus />
+                <input type="url" id="url" name="url" placeholder="https://example.com/article" required autofocus />
                 <button type="submit">Extract</button>
             </div>
             <details>
@@ -353,15 +395,67 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
                         <label for="referer">Referer (leave blank for none)</label>
                         <input type="text" id="referer" name="referer" placeholder="https://example.com/"{{refererAttr}}/>
                     </div>
+                    <div class="field">
+                        <label for="cookies">Cookies (one per line: name=value)</label>
+                        <textarea id="cookies" name="cookies" rows="3" placeholder="session=abc123&#10;token=xyz789">{{cookiesContent}}</textarea>
+                    </div>
+                    <hr class="separator" />
                     <div class="checkbox-field">
                         <input type="checkbox" id="clearCookies" name="clearCookies" value="on"{{clearCookiesAttr}}/>
                         <label for="clearCookies">Clear cookies (disable cookie storage for this request)</label>
+                    </div>
+                    <div class="checkbox-field">
+                        <input type="checkbox" id="pngConvert" name="pngConvert" value="on"{{pngConvertAttr}}/>
+                        <label for="pngConvert">Convert images to PNG</label>
                     </div>
                 </div>
             </details>
         </form>
         {{errorDiv}}
+        <div class="curl-section">
+            <label for="curlOutput">Equivalent REST API curl command <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('curlOutput').value)">Copy</button></label>
+            <textarea id="curlOutput" rows="6" readonly></textarea>
+        </div>
     </div>
+    <script>
+    (function() {
+        function buildCurl() {
+            var url = document.getElementById('url').value.trim();
+            var ua  = document.getElementById('userAgent').value.trim();
+            var ref = document.getElementById('referer').value.trim();
+            var ck  = document.getElementById('cookies').value.trim();
+            var cc  = document.getElementById('clearCookies').checked;
+            var png = document.getElementById('pngConvert').checked;
+
+            var body = { url: url || 'https://example.com/article', includeCleanHtmlEmbeddedImages: true, includePlainText: false, includeMarkdownNoImages: false };
+            if (ua)  body.userAgent = ua;
+            if (ref) body.referer = ref;
+            if (cc)  body.clearCookies = true;
+            if (png) body.pngConversionRequired = true;
+            if (ck) {
+                var cookies = ck.split('\n').map(function(line) {
+                    var eq = line.indexOf('=');
+                    if (eq <= 0) return null; // skip lines with no '=' or empty name
+                    return { name: line.substring(0, eq).trim(), value: line.substring(eq + 1).trim() };
+                }).filter(Boolean);
+                if (cookies.length > 0) body.cookies = cookies;
+            }
+
+            var json = JSON.stringify(body, null, 2);
+            var cmd = "curl -X POST http://localhost:8080/process \\\n  -H \"Content-Type: application/json\" \\\n  -d '" + json + "'";
+            document.getElementById('curlOutput').value = cmd;
+        }
+
+        ['url','userAgent','referer','cookies'].forEach(function(id) {
+            document.getElementById(id).addEventListener('input', buildCurl);
+        });
+        ['clearCookies','pngConvert'].forEach(function(id) {
+            document.getElementById(id).addEventListener('change', buildCurl);
+        });
+
+        buildCurl();
+    })();
+    </script>
 </body>
 </html>
 """;
@@ -378,13 +472,15 @@ static string LiveResultHtml(string title, string articleHtml, string sourceUrl,
     <title>{{title}}</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f5f5f5; color: #333; margin: 0; padding: 0; }
-        .toolbar { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
-        .toolbar a { color: #0066cc; text-decoration: none; font-size: 0.9rem; }
-        .toolbar a:hover { text-decoration: underline; }
-        .toolbar .meta { margin-left: auto; color: #999; font-size: 0.8rem; }
-        .article { max-width: 800px; margin: 2rem auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 2rem; }
-        .article img { max-width: 100%; height: auto; border-radius: 4px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 0; }
+        .toolbar { background: #16213e; border-bottom: 1px solid #0f3460; padding: 0.75rem 2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+        .toolbar a { color: #e94560; text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+        .toolbar a:hover { color: #f5a0b0; text-decoration: underline; }
+        .toolbar .meta { margin-left: auto; color: #556677; font-size: 0.8rem; }
+        .article { max-width: 800px; margin: 2rem auto; background: #16213e; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); padding: 2rem; border: 1px solid #0f3460; }
+        .article img { max-width: 100%; height: auto; border-radius: 6px; }
+        .article a { color: #e94560; }
+        .article a:hover { color: #f5a0b0; }
     </style>
 </head>
 <body>
