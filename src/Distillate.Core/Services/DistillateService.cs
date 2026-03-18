@@ -143,7 +143,8 @@ public class DistillateService : IDistillateService
             {
                 try
                 {
-                    var httpClient = _httpClientFactory.CreateClient("ImageDownloader");
+                    var httpClient = _httpClientFactory.CreateClient(
+                        request.ClearCookies ? "ImageDownloaderNoCookies" : "ImageDownloader");
                     var processor = new ImageProcessor(
                         _loggerFactory.CreateLogger<ImageProcessor>(),
                         httpClient,
@@ -241,7 +242,8 @@ public class DistillateService : IDistillateService
             {
                 try
                 {
-                    var httpClient = _httpClientFactory.CreateClient("ImageDownloader");
+                    var httpClient = _httpClientFactory.CreateClient(
+                        request.ClearCookies ? "ImageDownloaderNoCookies" : "ImageDownloader");
                     using var featuredCts = CancellationTokenSource.CreateLinkedTokenSource(linkedCts.Token);
                     featuredCts.CancelAfter(10_000);
                     using var response = await httpClient.GetAsync(

@@ -50,9 +50,17 @@ builder.Services.AddSingleton<ReaderEngineFactory>();
 builder.Services.AddSingleton<MarkdownConverter>();
 builder.Services.AddScoped<IDistillateService, DistillateService>();
 
-// Configure HttpClient for image downloading
-// UseCookies = false ensures cookies are not accumulated across requests
+// Configure HttpClient for image downloading.
+// "ImageDownloader" uses normal cookie behaviour (default).
+// "ImageDownloaderNoCookies" sets UseCookies=false for requests where ClearCookies=true.
 builder.Services.AddHttpClient("ImageDownloader", (sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<DistillateOptions>>().Value;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+builder.Services.AddHttpClient("ImageDownloaderNoCookies", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<DistillateOptions>>().Value;
     client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
@@ -103,6 +111,10 @@ if (options.IsLiveMode)
         var url = context.Request.Query["url"].ToString().Trim();
         var userAgentParam = context.Request.Query["userAgent"].ToString().Trim();
         var refererParam = context.Request.Query["referer"].ToString().Trim();
+        // HTML checkbox sends "on" when checked; absent means unchecked
+        var clearCookiesParam = context.Request.Query["clearCookies"].ToString();
+        var clearCookies = string.Equals(clearCookiesParam, "on", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(clearCookiesParam, "true", StringComparison.OrdinalIgnoreCase);
 
         // Use null (fall back to default) when the field is empty
         var effectiveUserAgent = string.IsNullOrEmpty(userAgentParam) ? null : userAgentParam;
@@ -110,12 +122,12 @@ if (options.IsLiveMode)
 
         if (string.IsNullOrEmpty(url))
         {
-            return Results.Content(LiveModeHtml("Please enter a URL.", userAgentParam, refererParam), "text/html");
+            return Results.Content(LiveModeHtml("Please enter a URL.", userAgentParam, refererParam, clearCookies), "text/html");
         }
 
         if (url.Length > options.MaxUrlLength)
         {
-            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters.", userAgentParam, refererParam), "text/html");
+            return Results.Content(LiveModeHtml($"URL exceeds maximum length of {options.MaxUrlLength} characters.", userAgentParam, refererParam, clearCookies), "text/html");
         }
 
         var traceId = Guid.NewGuid().ToString("N");
@@ -124,7 +136,7 @@ if (options.IsLiveMode)
         if (!semaphore.Wait(0))
         {
             logger.LogWarning("Live request rejected due to capacity limit. TraceId: {TraceId}", traceId);
-            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly.", userAgentParam, refererParam), "text/html");
+            return Results.Content(LiveModeHtml("Service is at capacity. Please try again shortly.", userAgentParam, refererParam, clearCookies), "text/html");
         }
 
         try
@@ -134,6 +146,7 @@ if (options.IsLiveMode)
                 Url = url,
                 UserAgent = effectiveUserAgent,
                 Referer = effectiveReferer,
+                ClearCookies = clearCookies,
                 IncludeCleanHtmlEmbeddedImages = true,
                 IncludeMarkdownNoImages = false,
                 IncludePlainText = false
@@ -144,7 +157,7 @@ if (options.IsLiveMode)
             if (!result.Success)
             {
                 var errorMsg = result.Errors != null ? string.Join("; ", result.Errors) : "Processing failed.";
-                return Results.Content(LiveModeHtml(errorMsg, userAgentParam, refererParam), "text/html");
+                return Results.Content(LiveModeHtml(errorMsg, userAgentParam, refererParam, clearCookies), "text/html");
             }
 
             // Return the clean HTML with embedded images directly.
@@ -279,14 +292,15 @@ static long GetEnvLong(string name, long defaultValue)
     return long.TryParse(value, out var result) ? result : defaultValue;
 }
 
-static string LiveModeHtml(string? errorMessage = null, string? userAgentValue = null, string? refererValue = null)
+static string LiveModeHtml(string? errorMessage = null, string? userAgentValue = null, string? refererValue = null, bool clearCookies = false)
 {
     var errorDiv = errorMessage != null
         ? $"""<div class="error">{HttpUtility.HtmlEncode(errorMessage)}</div>"""
         : "";
 
-    var userAgentAttr = HtmlValueAttr(userAgentValue);
-    var refererAttr   = HtmlValueAttr(refererValue);
+    var userAgentAttr    = HtmlValueAttr(userAgentValue);
+    var refererAttr      = HtmlValueAttr(refererValue);
+    var clearCookiesAttr = clearCookies ? " checked" : "";
 
     return $$"""
 <!DOCTYPE html>
@@ -310,6 +324,8 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
         button:hover { background: #0052a3; }
         label { font-size: 0.85rem; color: #555; margin-bottom: 0.15rem; display: block; }
         .field { display: flex; flex-direction: column; }
+        .checkbox-field { display: flex; align-items: center; gap: 0.5rem; }
+        .checkbox-field label { margin-bottom: 0; }
         details { margin-top: 0.25rem; }
         summary { font-size: 0.85rem; color: #666; cursor: pointer; user-select: none; }
         summary:hover { color: #0066cc; }
@@ -336,6 +352,10 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
                     <div class="field">
                         <label for="referer">Referer (leave blank for none)</label>
                         <input type="text" id="referer" name="referer" placeholder="https://example.com/"{{refererAttr}}/>
+                    </div>
+                    <div class="checkbox-field">
+                        <input type="checkbox" id="clearCookies" name="clearCookies" value="on"{{clearCookiesAttr}}/>
+                        <label for="clearCookies">Clear cookies (disable cookie storage for this request)</label>
                     </div>
                 </div>
             </details>

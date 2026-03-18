@@ -35,6 +35,7 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
         Assert.Contains("name=\"url\"", body);
         Assert.Contains("name=\"userAgent\"", body);
         Assert.Contains("name=\"referer\"", body);
+        Assert.Contains("name=\"clearCookies\"", body);
     }
 
     [Fact]
@@ -141,12 +142,26 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
     [Fact]
     public async Task Live_EmptyUserAgentAndReferer_FormHasFields()
     {
-        // The form must always contain user-agent and referer inputs
+        // The form must always contain user-agent, referer, and clearCookies inputs
         var response = await _client.GetAsync("/live");
 
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("name=\"userAgent\"", body);
         Assert.Contains("name=\"referer\"", body);
+        Assert.Contains("name=\"clearCookies\"", body);
+    }
+
+    [Fact]
+    public async Task Live_ClearCookiesChecked_CheckboxRepopulatedOnError()
+    {
+        // When validation fails with clearCookies=on the error page must keep the checkbox checked
+        var response = await _client.GetAsync("/live?url=&clearCookies=on");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        // The rendered checkbox should carry the "checked" attribute
+        Assert.Contains("checked", body);
     }
 
     public class LiveModeFactory : WebApplicationFactory<Program>
