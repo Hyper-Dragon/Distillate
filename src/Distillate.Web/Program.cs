@@ -133,7 +133,7 @@ if (options.IsLiveMode)
                 .Select(line =>
                 {
                     var eqIndex = line.IndexOf('=');
-                    if (eqIndex <= 0) return null;
+                    if (eqIndex <= 0) return null; // skip lines with no '=' (-1) or empty name (0)
                     return new CookieEntry
                     {
                         Name = line[..eqIndex].Trim(),
@@ -435,7 +435,7 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
             if (ck) {
                 var cookies = ck.split('\n').map(function(line) {
                     var eq = line.indexOf('=');
-                    if (eq <= 0) return null;
+                    if (eq <= 0) return null; // skip lines with no '=' or empty name
                     return { name: line.substring(0, eq).trim(), value: line.substring(eq + 1).trim() };
                 }).filter(Boolean);
                 if (cookies.length > 0) body.cookies = cookies;
