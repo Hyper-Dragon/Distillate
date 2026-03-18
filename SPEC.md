@@ -313,20 +313,27 @@ Live mode provides an interactive web UI for browser-based usage. When active, t
 | ------ | ---- | ----------- |
 | GET | / | HTML page with a URL input form |
 | GET | /health | Health check (JSON, same as REST mode) |
-| POST | /live | Accepts a URL via HTML form submission, processes it, and returns the reader-view HTML with embedded images |
+| GET | /live?url=\<encoded-url\> | Process a URL and return the reader-view HTML with embedded images |
 
 #### `GET /`
 
-Returns an HTML page containing a form with a single URL input field. The form submits via `POST` to `/live`.
+Returns an HTML page containing a form with a single URL input field. The form submits via `GET` to `/live`, resulting in a `GET /live?url=<encoded-url>` request.
 
-#### `POST /live`
+#### `GET /live?url=<encoded-url>`
 
-Accepts a form-encoded body with a single field `url`. The service:
+Accepts the target URL as a query parameter. Users can activate the live view in two ways:
+
+1. **Form submission** — via the `GET /` page; the browser constructs the query string automatically
+2. **Direct link or bookmark** — navigate directly to `http://<host>/live?url=https://example.com/article`
+
+When a `url` query parameter is present, the service:
 
 1. Validates the URL (non-empty, within `MAX_URL_LENGTH`)
 2. Acquires a concurrency slot (returns an error page if at capacity)
 3. Processes the URL with `includeCleanHtmlEmbeddedImages=true`
 4. Returns the extracted article HTML directly as a rendered web page with embedded images
+
+When the `url` query parameter is absent or empty, the service returns the input form page (with an error if `url` was explicitly provided but empty).
 
 On success, the response is a full HTML page containing:
 * A sticky toolbar with a link back to the input form and a link to the original page

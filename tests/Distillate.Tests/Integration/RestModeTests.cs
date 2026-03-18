@@ -48,12 +48,7 @@ public class RestModeTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task Live_InRestMode_ReturnsNotFound()
     {
-        var formContent = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("url", "https://example.com")
-        });
-
-        var response = await _client.PostAsync("/live", formContent);
+        var response = await _client.GetAsync("/live?url=https://example.com");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }

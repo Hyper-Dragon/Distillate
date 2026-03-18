@@ -30,6 +30,7 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("Distillate", body);
         Assert.Contains("<form", body);
+        Assert.Contains("method=\"get\"", body);
         Assert.Contains("action=\"/live\"", body);
         Assert.Contains("name=\"url\"", body);
     }
@@ -61,19 +62,27 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
     }
 
     [Fact]
-    public async Task Live_EmptyUrl_ReturnsErrorPage()
+    public async Task Live_NoUrl_ReturnsFormPage()
     {
-        var formContent = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("url", "")
-        });
-
-        var response = await _client.PostAsync("/live", formContent);
+        // GET /live without ?url= shows the form (no error message)
+        var response = await _client.GetAsync("/live");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains("text/html", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("<form", body);
+    }
+
+    [Fact]
+    public async Task Live_EmptyUrl_ReturnsErrorPage()
+    {
+        var response = await _client.GetAsync("/live?url=");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("Please enter a URL", body);
     }
 
@@ -81,12 +90,7 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
     public async Task Live_UrlTooLong_ReturnsErrorPage()
     {
         var longUrl = "https://example.com/" + new string('a', 3000);
-        var formContent = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("url", longUrl)
-        });
-
-        var response = await _client.PostAsync("/live", formContent);
+        var response = await _client.GetAsync($"/live?url={Uri.EscapeDataString(longUrl)}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -97,20 +101,26 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
     [Fact]
     public async Task Live_InvalidUrl_ReturnsErrorPage()
     {
-        var formContent = new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("url", "not-a-valid-url")
-        });
-
-        var response = await _client.PostAsync("/live", formContent);
+        var response = await _client.GetAsync("/live?url=not-a-valid-url");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync();
-        Assert.Contains("text/html", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         // Invalid URL should result in an error shown in the HTML page
         Assert.Contains("<html", body);
         Assert.Contains("error", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Live_DirectLink_IncludesUrlInQueryString()
+    {
+        // Verify that navigating directly to /live?url=... is handled (no server-side 404)
+        // The URL itself is invalid so we'll get an error response, but it must be HTML not 404
+        var response = await _client.GetAsync("/live?url=https://this-domain-does-not-exist.invalid/");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
     }
 
     public class LiveModeFactory : WebApplicationFactory<Program>

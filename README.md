@@ -68,9 +68,13 @@ docker run -e MODE=live -p 8080:8080 distillate-web:release
 
 - `GET /` — Web page with a URL input form
 - `GET /health` — Health check (JSON)
-- `POST /live` — Accepts a URL via form submission and returns the reader-view HTML with embedded images
+- `GET /live?url=<encoded-url>` — Directly extract and display reader view for a URL (form submissions also use this pattern)
 
-**The two modes are mutually exclusive.** REST endpoints (`POST /process`) are not available in live mode, and live endpoints (`GET /` HTML page, `POST /live`) are not available in REST mode.
+Users can activate the live view in two ways:
+1. **Form**: Navigate to `http://localhost:8080/` and enter a URL in the input box
+2. **Direct link or bookmark**: Navigate to `http://localhost:8080/live?url=https://example.com/article`
+
+**The two modes are mutually exclusive.** REST endpoints (`POST /process`) are not available in live mode, and live endpoints (`GET /` HTML page, `GET /live`) are not available in REST mode.
 
 ## Configuration
 

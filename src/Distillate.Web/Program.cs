@@ -91,11 +91,12 @@ if (options.IsLiveMode)
     // Root endpoint serves the live mode HTML page
     app.MapGet("/", () => Results.Content(LiveModeHtml(), "text/html"));
 
-    // Live processing endpoint — accepts a URL and returns reader-view HTML
-    app.MapPost("/live", async (HttpContext context, IDistillateService service) =>
+    // Live processing endpoint — accepts a URL via query parameter (?url=...) or form GET,
+    // enabling direct links, bookmarks, and browser integrations such as:
+    //   http://localhost:8080/live?url=https://example.com/article
+    app.MapGet("/live", async (HttpContext context, IDistillateService service) =>
     {
-        var form = await context.Request.ReadFormAsync();
-        var url = form["url"].ToString().Trim();
+        var url = context.Request.Query["url"].ToString().Trim();
 
         if (string.IsNullOrEmpty(url))
         {
@@ -297,7 +298,7 @@ static string LiveModeHtml(string? errorMessage = null)
     <div class="container">
         <h1>Distillate</h1>
         <p class="subtitle">Enter a URL to extract its reader view with embedded images.</p>
-        <form method="post" action="/live">
+        <form method="get" action="/live">
             <input type="url" name="url" placeholder="https://example.com/article" required autofocus />
             <button type="submit">Extract</button>
         </form>
