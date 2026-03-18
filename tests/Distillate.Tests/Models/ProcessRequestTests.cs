@@ -15,6 +15,7 @@ public class ProcessRequestTests
         Assert.Null(request.TimeoutMs);
         Assert.Null(request.StabilizationMs);
         Assert.Null(request.UserAgent);
+        Assert.Null(request.Referer);
         Assert.Null(request.Cookies);
 
         // Content flags
@@ -54,6 +55,7 @@ public class ProcessRequestTests
             TimeoutMs = 30000,
             StabilizationMs = 5000,
             UserAgent = "CustomAgent/1.0",
+            Referer = "https://referring-site.com/page",
             Cookies = [new CookieEntry { Name = "session", Value = "abc123" }],
             IncludeSourceHtml = true,
             IncludeCleanHtmlEmbeddedImages = true,
@@ -76,6 +78,7 @@ public class ProcessRequestTests
         Assert.Equal(30000, request.TimeoutMs);
         Assert.Equal(5000, request.StabilizationMs);
         Assert.Equal("CustomAgent/1.0", request.UserAgent);
+        Assert.Equal("https://referring-site.com/page", request.Referer);
         Assert.Single(request.Cookies);
         Assert.Equal("session", request.Cookies[0].Name);
         Assert.True(request.IncludeSourceHtml);

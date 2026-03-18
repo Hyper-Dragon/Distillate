@@ -78,6 +78,7 @@ Process a URL and extract reader view content.
 | `timeoutMs` | server max | Per-request timeout override (ms) |
 | `stabilizationMs` | server default | DOM stabilization delay override (ms) |
 | `userAgent` | server default | User-Agent override |
+| `referer` | `null` | HTTP Referer header override |
 | `cookies` | `null` | Cookies to inject before navigation |
 | `includeSourceHtml` | `false` | Raw browser HTML before reader extraction |
 | `includeCleanHtmlEmbeddedImages` | `false` | Reader HTML with images as base64 data URIs |

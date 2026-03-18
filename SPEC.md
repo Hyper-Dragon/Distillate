@@ -123,6 +123,7 @@ POST /process
   "timeoutMs": 60000,
   "stabilizationMs": 5000,
   "userAgent": "Custom/1.0",
+  "referer": "https://referring-site.com/page",
   "cookies": [
     {
       "name": "session",
@@ -156,6 +157,7 @@ POST /process
 | timeoutMs | int? | null | Override timeout (capped by server max) |
 | stabilizationMs | int? | null | Override DOM stabilization delay |
 | userAgent | string? | null | Override User-Agent |
+| referer | string? | null | Override HTTP Referer header |
 | cookies | array? | null | Cookies to set before navigation |
 | includeSourceHtml | bool | false | Raw browser-captured HTML before reader extraction |
 | includeCleanHtmlEmbeddedImages | bool | false | Reader HTML with images inlined as base64 data URIs |
