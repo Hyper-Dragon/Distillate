@@ -56,7 +56,7 @@ The default mode. Exposes a JSON API for programmatic access.
 
 ### Live Mode
 
-An interactive web UI for browser-based usage. Set `MODE=live` to enable.
+An interactive dark-themed web UI for browser-based usage. Set `MODE=live` to enable.
 
 ```bash
 # Running locally
@@ -66,9 +66,11 @@ MODE=live dotnet run --project src/Distillate.Web
 docker run -e MODE=live -p 8080:8080 distillate-web:release
 ```
 
-- `GET /` — Web page with a URL input form
+- `GET /` — Web page with a URL input form and advanced options (user-agent, referer, cookies, clear cookies, PNG conversion)
 - `GET /health` — Health check (JSON)
 - `GET /live?url=<encoded-url>` — Directly extract and display reader view for a URL (form submissions also use this pattern)
+
+The form includes a read-only textarea that generates the equivalent `curl` command for the REST API, making it a convenient testing companion for `POST /process`.
 
 Users can activate the live view in two ways:
 1. **Form**: Navigate to `http://localhost:8080/` and enter a URL in the input box
@@ -115,6 +117,7 @@ Process a URL and extract reader view content.
 | `userAgent` | server default | User-Agent override |
 | `referer` | `null` | HTTP Referer header override |
 | `cookies` | `null` | Cookies to inject before navigation |
+| `clearCookies` | `false` | Disable cookie storage for this request |
 | `includeSourceHtml` | `false` | Raw browser HTML before reader extraction |
 | `includeCleanHtmlEmbeddedImages` | `false` | Reader HTML with images as base64 data URIs |
 | `includeCleanHtmlLinkedImages` | `false` | Reader HTML with images as local filenames |

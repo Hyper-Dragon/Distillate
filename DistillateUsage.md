@@ -106,6 +106,7 @@ This design ensures:
 | userAgent | string | null | Override User-Agent |
 | referer | string | null | Override HTTP Referer header |
 | cookies | array | null | Cookies to set before navigation |
+| clearCookies | bool | false | Disable cookie storage for this request |
 
 ---
 
