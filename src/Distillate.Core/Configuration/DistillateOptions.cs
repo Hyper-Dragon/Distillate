@@ -30,5 +30,13 @@ public class DistillateOptions
 
     public int MaxV8HeapSizeMb { get; set; } = 512;
 
+    /// <summary>
+    /// Service mode: "rest" (default) for JSON API, or "live" for interactive web UI.
+    /// The two modes are mutually exclusive — the service runs in one mode only.
+    /// </summary>
+    public string Mode { get; set; } = "rest";
+
     public bool IsAggressiveGc => string.Equals(GcMode, "aggressive", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsLiveMode => string.Equals(Mode, "live", StringComparison.OrdinalIgnoreCase);
 }

@@ -42,12 +42,47 @@ curl -X POST http://localhost:8080/process \
 curl http://localhost:8080/health
 ```
 
+## Modes
+
+Distillate runs in one of two mutually exclusive modes, controlled by the `MODE` environment variable:
+
+### REST Mode (default)
+
+The default mode. Exposes a JSON API for programmatic access.
+
+- `GET /` — Service info (JSON)
+- `GET /health` — Health check (JSON)
+- `POST /process` — Process a URL and return structured JSON
+
+### Live Mode
+
+An interactive web UI for browser-based usage. Set `MODE=live` to enable.
+
+```bash
+# Running locally
+MODE=live dotnet run --project src/Distillate.Web
+
+# Running with Docker
+docker run -e MODE=live -p 8080:8080 distillate-web:release
+```
+
+- `GET /` — Web page with a URL input form
+- `GET /health` — Health check (JSON)
+- `GET /live?url=<encoded-url>` — Directly extract and display reader view for a URL (form submissions also use this pattern)
+
+Users can activate the live view in two ways:
+1. **Form**: Navigate to `http://localhost:8080/` and enter a URL in the input box
+2. **Direct link or bookmark**: Navigate to `http://localhost:8080/live?url=https://example.com/article`
+
+**The two modes are mutually exclusive.** REST endpoints (`POST /process`) are not available in live mode, and live endpoints (`GET /` HTML page, `GET /live`) are not available in REST mode.
+
 ## Configuration
 
 All configuration is done via environment variables:
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
+| `MODE` | `rest` | Service mode: `rest` (JSON API) or `live` (interactive web UI). Mutually exclusive — the service runs in one mode only. |
 | `CONCURRENCY` | `1` | Max simultaneous requests |
 | `MAX_TIME_MS` | `180000` | Hard timeout per request (3 minutes) |
 | `MAX_IMAGE_BYTES` | `209715200` | Global image embedding budget (200 MB) |

@@ -22,6 +22,8 @@ public class DistillateOptionsTests
         Assert.Equal(100, options.ScrollDelayMs);
         Assert.Equal(512, options.MaxV8HeapSizeMb);
         Assert.False(options.IsAggressiveGc);
+        Assert.Equal("rest", options.Mode);
+        Assert.False(options.IsLiveMode);
     }
 
     [Fact]
@@ -45,5 +47,36 @@ public class DistillateOptionsTests
 
         options = new DistillateOptions { GcMode = "whatever" };
         Assert.False(options.IsAggressiveGc);
+    }
+
+    [Fact]
+    public void DistillateOptions_DefaultMode_IsRest()
+    {
+        var options = new DistillateOptions();
+        Assert.Equal("rest", options.Mode);
+        Assert.False(options.IsLiveMode);
+    }
+
+    [Fact]
+    public void DistillateOptions_LiveMode_IsDetected()
+    {
+        var options = new DistillateOptions { Mode = "live" };
+        Assert.True(options.IsLiveMode);
+
+        options = new DistillateOptions { Mode = "Live" };
+        Assert.True(options.IsLiveMode);
+
+        options = new DistillateOptions { Mode = "LIVE" };
+        Assert.True(options.IsLiveMode);
+    }
+
+    [Fact]
+    public void DistillateOptions_RestMode_IsNotLive()
+    {
+        var options = new DistillateOptions { Mode = "rest" };
+        Assert.False(options.IsLiveMode);
+
+        options = new DistillateOptions { Mode = "whatever" };
+        Assert.False(options.IsLiveMode);
     }
 }
