@@ -209,6 +209,143 @@ if (options.IsLiveMode)
             }
         }
     });
+
+    // Live events endpoint — Server-Sent Events stream for real-time processing log
+    app.MapGet("/live/events", async (HttpContext context, IDistillateService service) =>
+    {
+        context.Response.ContentType = "text/event-stream";
+        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.Headers["X-Accel-Buffering"] = "no";
+
+        async Task SendSseEvent(string eventType, string data)
+        {
+            var sanitised = data.Replace("\n", " ").Replace("\r", "");
+            await context.Response.WriteAsync($"event: {eventType}\ndata: {sanitised}\n\n", context.RequestAborted);
+            await context.Response.Body.FlushAsync(context.RequestAborted);
+        }
+
+        try
+        {
+            await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] Validating parameters...");
+
+            var url = context.Request.Query["url"].ToString().Trim();
+            var userAgentParam = context.Request.Query["userAgent"].ToString().Trim();
+            var refererParam = context.Request.Query["referer"].ToString().Trim();
+            var cookiesParam = context.Request.Query["cookies"].ToString().Trim();
+            var clearCookiesParam = context.Request.Query["clearCookies"].ToString();
+            var clearCookies = string.Equals(clearCookiesParam, "on", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(clearCookiesParam, "true", StringComparison.OrdinalIgnoreCase);
+            var pngConvertParam = context.Request.Query["pngConvert"].ToString();
+            var pngConvert = string.Equals(pngConvertParam, "on", StringComparison.OrdinalIgnoreCase)
+                          || string.Equals(pngConvertParam, "true", StringComparison.OrdinalIgnoreCase);
+
+            var effectiveUserAgent = string.IsNullOrEmpty(userAgentParam) ? null : userAgentParam;
+            var effectiveReferer   = string.IsNullOrEmpty(refererParam)   ? null : refererParam;
+
+            CookieEntry[]? parsedCookies = null;
+            if (!string.IsNullOrWhiteSpace(cookiesParam))
+            {
+                var entries = cookiesParam
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(line =>
+                    {
+                        var eqIndex = line.IndexOf('=');
+                        if (eqIndex <= 0) return null;
+                        return new CookieEntry
+                        {
+                            Name = line[..eqIndex].Trim(),
+                            Value = line[(eqIndex + 1)..].Trim()
+                        };
+                    })
+                    .Where(c => c != null)
+                    .Cast<CookieEntry>()
+                    .ToArray();
+
+                if (entries.Length > 0)
+                    parsedCookies = entries;
+            }
+
+            if (string.IsNullOrEmpty(url))
+            {
+                await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] ERROR: No URL provided");
+                await SendSseEvent("fail", "Please enter a URL.");
+                return;
+            }
+
+            if (url.Length > options.MaxUrlLength)
+            {
+                await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] ERROR: URL exceeds maximum length of {options.MaxUrlLength} characters");
+                await SendSseEvent("fail", $"URL exceeds maximum length of {options.MaxUrlLength} characters.");
+                return;
+            }
+
+            await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] URL validated: {url}");
+
+            var traceId = Guid.NewGuid().ToString("N");
+            await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] TraceId: {traceId}");
+            await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] Acquiring processing slot...");
+
+            if (!semaphore.Wait(0))
+            {
+                logger.LogWarning("Live SSE request rejected due to capacity limit. TraceId: {TraceId}", traceId);
+                await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] ERROR: Service at capacity");
+                await SendSseEvent("fail", "Service is at capacity. Please try again shortly.");
+                return;
+            }
+
+            try
+            {
+                await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] Processing slot acquired");
+                await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] Starting extraction...");
+
+                var request = new ProcessRequest
+                {
+                    Url = url,
+                    UserAgent = effectiveUserAgent,
+                    Referer = effectiveReferer,
+                    Cookies = parsedCookies,
+                    ClearCookies = clearCookies,
+                    PngConversionRequired = pngConvert,
+                    IncludeCleanHtmlEmbeddedImages = true,
+                    IncludeMarkdownNoImages = false,
+                    IncludePlainText = false
+                };
+
+                var result = await service.ProcessAsync(request, traceId, context.RequestAborted);
+
+                if (!result.Success)
+                {
+                    var errorMsg = result.Errors != null ? string.Join("; ", result.Errors) : "Processing failed.";
+                    await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] ERROR: {errorMsg}");
+                    await SendSseEvent("fail", errorMsg);
+                }
+                else
+                {
+                    await SendSseEvent("log", $"[{DateTime.UtcNow:HH:mm:ss.fff}] Extraction complete ({result.ProcessingTimeMs:F0}ms)");
+
+                    var html = result.CleanHtmlEmbeddedImages ?? "<p>No content could be extracted.</p>";
+                    var title = HttpUtility.HtmlEncode(result.Title ?? "Distillate — Reader View");
+                    var resultHtml = LiveResultHtml(title, html, url, result.ProcessingTimeMs);
+                    var base64Html = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(resultHtml));
+                    await SendSseEvent("result", base64Html);
+                }
+            }
+            finally
+            {
+                semaphore.Release();
+
+                if (options.IsAggressiveGc)
+                {
+                    GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                    GC.Collect(2, GCCollectionMode.Forced, true, true);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected — ignore
+        }
+    });
 }
 else
 {
@@ -344,19 +481,23 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; margin: 0; padding: 2rem; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
-        .container { max-width: 680px; width: 100%; background: #16213e; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); padding: 2rem; border: 1px solid #0f3460; }
+        .page-container { max-width: 1100px; width: 100%; background: #16213e; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); padding: 2rem; border: 1px solid #0f3460; }
         h1 { margin: 0 0 0.25rem; font-size: 1.6rem; color: #e94560; letter-spacing: 0.02em; }
         p.subtitle { margin: 0 0 1.5rem; color: #8899aa; font-size: 0.9rem; }
+        .main-content { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 768px) { .main-content { grid-template-columns: 1fr; } }
         form { display: flex; flex-direction: column; gap: 0.75rem; }
         .url-row { display: flex; gap: 0.5rem; }
-        input[type="url"], input[type="text"], textarea { padding: 0.6rem 0.75rem; border: 1px solid #0f3460; border-radius: 6px; font-size: 1rem; width: 100%; background: #1a1a2e; color: #e0e0e0; transition: border-color 0.2s, box-shadow 0.2s; }
+        input[type="url"], input[type="text"], input[type="number"], textarea, select { padding: 0.6rem 0.75rem; border: 1px solid #0f3460; border-radius: 6px; font-size: 0.9rem; width: 100%; background: #1a1a2e; color: #e0e0e0; transition: border-color 0.2s, box-shadow 0.2s; }
         textarea { font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace; font-size: 0.85rem; resize: vertical; }
+        select { cursor: pointer; }
         .url-row input[type="url"] { flex: 1; width: auto; }
-        input[type="url"]:focus, input[type="text"]:focus, textarea:focus { outline: none; border-color: #e94560; box-shadow: 0 0 0 2px rgba(233,69,96,0.25); }
+        input[type="url"]:focus, input[type="text"]:focus, input[type="number"]:focus, textarea:focus, select:focus { outline: none; border-color: #e94560; box-shadow: 0 0 0 2px rgba(233,69,96,0.25); }
         input::placeholder, textarea::placeholder { color: #556677; }
-        button { padding: 0.6rem 1.5rem; background: #e94560; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s, transform 0.1s; }
-        button:hover { background: #c73652; }
-        button:active { transform: scale(0.98); }
+        button, .extract-btn { padding: 0.6rem 1.5rem; background: #e94560; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.2s, transform 0.1s; }
+        button:hover, .extract-btn:hover { background: #c73652; }
+        button:active, .extract-btn:active { transform: scale(0.98); }
+        button:disabled { background: #555; cursor: not-allowed; }
         label { font-size: 0.85rem; color: #8899aa; margin-bottom: 0.15rem; display: block; }
         .field { display: flex; flex-direction: column; }
         .checkbox-field { display: flex; align-items: center; gap: 0.5rem; }
@@ -367,58 +508,211 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
         summary:hover { color: #e94560; }
         .optional-fields { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem; }
         .error { margin-top: 1rem; padding: 0.75rem; background: rgba(233,69,96,0.12); border: 1px solid rgba(233,69,96,0.35); border-radius: 6px; color: #f5a0b0; font-size: 0.9rem; }
-        .curl-section { margin-top: 1.25rem; }
         .curl-section label { font-size: 0.85rem; color: #8899aa; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; }
         .curl-section textarea { background: #111827; color: #9ca3af; border: 1px solid #0f3460; font-size: 0.8rem; line-height: 1.5; }
-        .curl-section .copy-btn { background: transparent; border: 1px solid #0f3460; color: #8899aa; padding: 0.2rem 0.6rem; font-size: 0.75rem; border-radius: 4px; cursor: pointer; font-weight: 400; transition: border-color 0.2s, color 0.2s; }
-        .curl-section .copy-btn:hover { border-color: #e94560; color: #e94560; }
+        .copy-btn { background: transparent; border: 1px solid #0f3460; color: #8899aa; padding: 0.2rem 0.6rem; font-size: 0.75rem; border-radius: 4px; cursor: pointer; font-weight: 400; transition: border-color 0.2s, color 0.2s; }
+        .copy-btn:hover { border-color: #e94560; color: #e94560; }
+        .curl-options { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0; }
+        .curl-options .group-label { font-size: 0.7rem; color: #e94560; font-weight: 600; margin-top: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .curl-options .checkbox-field { font-size: 0.8rem; }
+        .curl-options .checkbox-field label { font-size: 0.8rem; }
+        .curl-options input[type="checkbox"] { width: 14px; height: 14px; }
+        .curl-options .field { gap: 0.2rem; }
+        .curl-options .field label { font-size: 0.8rem; }
+        .curl-options .field input, .curl-options .field select { font-size: 0.8rem; padding: 0.35rem 0.5rem; }
         .separator { border: none; border-top: 1px solid #0f3460; margin: 0.5rem 0 0; }
+        .console-section { margin-top: 1.5rem; }
+        .console-section > label { font-size: 0.85rem; color: #8899aa; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.5rem; }
+        .console-output { background: #0d1117; border: 1px solid #0f3460; border-radius: 6px; padding: 0.75rem; font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace; font-size: 0.8rem; line-height: 1.6; min-height: 120px; max-height: 300px; overflow-y: auto; color: #9ca3af; }
+        .console-output .log-line { margin: 0; }
+        .console-output .log-error { color: #e94560; }
+        .console-output .log-success { color: #4ade80; }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="page-container">
         <h1>Distillate</h1>
         <p class="subtitle">Enter a URL to extract its reader view with embedded images.</p>
-        <form method="get" action="/live" id="distillateForm">
-            <div class="url-row">
-                <input type="url" id="url" name="url" placeholder="https://example.com/article" required autofocus />
-                <button type="submit">Extract</button>
+        <div class="main-content">
+            <div class="left-column">
+                <form method="get" action="/live" id="distillateForm">
+                    <div class="url-row">
+                        <input type="url" id="url" name="url" placeholder="https://example.com/article" required autofocus />
+                        <button type="submit" id="extractBtn">Extract</button>
+                    </div>
+                    <details>
+                        <summary>Advanced options</summary>
+                        <div class="optional-fields">
+                            <div class="field">
+                                <label for="userAgent">User-Agent (leave blank for default)</label>
+                                <input type="text" id="userAgent" name="userAgent" placeholder="Mozilla/5.0 …"{{userAgentAttr}}/>
+                            </div>
+                            <div class="field">
+                                <label for="referer">Referer (leave blank for none)</label>
+                                <input type="text" id="referer" name="referer" placeholder="https://example.com/"{{refererAttr}}/>
+                            </div>
+                            <div class="field">
+                                <label for="cookies">Cookies (one per line: name=value)</label>
+                                <textarea id="cookies" name="cookies" rows="3" placeholder="session=abc123&#10;token=xyz789">{{cookiesContent}}</textarea>
+                            </div>
+                            <hr class="separator" />
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="clearCookies" name="clearCookies" value="on"{{clearCookiesAttr}}/>
+                                <label for="clearCookies">Clear cookies (disable cookie storage for this request)</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="pngConvert" name="pngConvert" value="on"{{pngConvertAttr}}/>
+                                <label for="pngConvert">Convert images to PNG</label>
+                            </div>
+                        </div>
+                    </details>
+                </form>
+                {{errorDiv}}
             </div>
-            <details>
-                <summary>Advanced options</summary>
-                <div class="optional-fields">
-                    <div class="field">
-                        <label for="userAgent">User-Agent (leave blank for default)</label>
-                        <input type="text" id="userAgent" name="userAgent" placeholder="Mozilla/5.0 …"{{userAgentAttr}}/>
-                    </div>
-                    <div class="field">
-                        <label for="referer">Referer (leave blank for none)</label>
-                        <input type="text" id="referer" name="referer" placeholder="https://example.com/"{{refererAttr}}/>
-                    </div>
-                    <div class="field">
-                        <label for="cookies">Cookies (one per line: name=value)</label>
-                        <textarea id="cookies" name="cookies" rows="3" placeholder="session=abc123&#10;token=xyz789">{{cookiesContent}}</textarea>
-                    </div>
-                    <hr class="separator" />
-                    <div class="checkbox-field">
-                        <input type="checkbox" id="clearCookies" name="clearCookies" value="on"{{clearCookiesAttr}}/>
-                        <label for="clearCookies">Clear cookies (disable cookie storage for this request)</label>
-                    </div>
-                    <div class="checkbox-field">
-                        <input type="checkbox" id="pngConvert" name="pngConvert" value="on"{{pngConvertAttr}}/>
-                        <label for="pngConvert">Convert images to PNG</label>
-                    </div>
+            <div class="right-column">
+                <div class="curl-section">
+                    <label for="curlOutput">Equivalent REST API curl command <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('curlOutput').value)">Copy</button></label>
+                    <details>
+                        <summary>Curl-only options (all REST API fields)</summary>
+                        <div class="curl-options">
+                            <div class="group-label">Content Outputs</div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeSourceHtml" />
+                                <label for="curl_includeSourceHtml">includeSourceHtml</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeCleanHtmlEmbeddedImages" />
+                                <label for="curl_includeCleanHtmlEmbeddedImages">includeCleanHtmlEmbeddedImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeCleanHtmlLinkedImages" />
+                                <label for="curl_includeCleanHtmlLinkedImages">includeCleanHtmlLinkedImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeCleanHtmlNoImages" />
+                                <label for="curl_includeCleanHtmlNoImages">includeCleanHtmlNoImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeMarkdownLinkedImages" />
+                                <label for="curl_includeMarkdownLinkedImages">includeMarkdownLinkedImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeMarkdownNoImages" checked />
+                                <label for="curl_includeMarkdownNoImages">includeMarkdownNoImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includePlainText" checked />
+                                <label for="curl_includePlainText">includePlainText</label>
+                            </div>
+                            <div class="group-label">Link Extraction</div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeAllLinksInPage" />
+                                <label for="curl_includeAllLinksInPage">includeAllLinksInPage</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeAllLinksMedia" />
+                                <label for="curl_includeAllLinksMedia">includeAllLinksMedia</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeAllLinksAssets" />
+                                <label for="curl_includeAllLinksAssets">includeAllLinksAssets</label>
+                            </div>
+                            <div class="group-label">Image Extraction</div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeAllInPageImages" />
+                                <label for="curl_includeAllInPageImages">includeAllInPageImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeAllOutOfPageImages" />
+                                <label for="curl_includeAllOutOfPageImages">includeAllOutOfPageImages</label>
+                            </div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_imageLinkRewrite" />
+                                <label for="curl_imageLinkRewrite">imageLinkRewrite</label>
+                            </div>
+                            <div class="group-label">Processing</div>
+                            <div class="field">
+                                <label for="curl_engine">engine</label>
+                                <input type="text" id="curl_engine" value="smartreader" />
+                            </div>
+                            <div class="field">
+                                <label for="curl_timeoutMs">timeoutMs</label>
+                                <input type="number" id="curl_timeoutMs" placeholder="e.g. 60000" />
+                            </div>
+                            <div class="field">
+                                <label for="curl_stabilizationMs">stabilizationMs</label>
+                                <input type="number" id="curl_stabilizationMs" placeholder="e.g. 5000" />
+                            </div>
+                            <div class="field">
+                                <label for="curl_unicodeNormalization">unicodeNormalization</label>
+                                <select id="curl_unicodeNormalization">
+                                    <option value="preserve" selected>preserve</option>
+                                    <option value="ascii">ascii</option>
+                                    <option value="latex">latex</option>
+                                </select>
+                            </div>
+                            <div class="group-label">Debug</div>
+                            <div class="checkbox-field">
+                                <input type="checkbox" id="curl_includeDebugInfo" />
+                                <label for="curl_includeDebugInfo">includeDebugInfo</label>
+                            </div>
+                        </div>
+                    </details>
+                    <textarea id="curlOutput" rows="10" readonly></textarea>
                 </div>
-            </details>
-        </form>
-        {{errorDiv}}
-        <div class="curl-section">
-            <label for="curlOutput">Equivalent REST API curl command <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('curlOutput').value)">Copy</button></label>
-            <textarea id="curlOutput" rows="6" readonly></textarea>
+            </div>
+        </div>
+        <div class="console-section" id="consoleSection">
+            <label>Console Output <button type="button" class="copy-btn" onclick="document.getElementById('consoleOutput').innerHTML=''">Clear</button></label>
+            <div id="consoleOutput" class="console-output"></div>
         </div>
     </div>
     <script>
     (function() {
+        var STORAGE_KEY = 'distillate-settings';
+
+        function saveSettings() {
+            var settings = {
+                url: document.getElementById('url').value,
+                userAgent: document.getElementById('userAgent').value,
+                referer: document.getElementById('referer').value,
+                cookies: document.getElementById('cookies').value,
+                clearCookies: document.getElementById('clearCookies').checked,
+                pngConvert: document.getElementById('pngConvert').checked
+            };
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch(e) {}
+        }
+
+        function loadSettings() {
+            if (document.querySelector('.error')) return;
+            try {
+                var saved = localStorage.getItem(STORAGE_KEY);
+                if (!saved) return;
+                var s = JSON.parse(saved);
+                var fields = ['url', 'userAgent', 'referer'];
+                for (var i = 0; i < fields.length; i++) {
+                    var el = document.getElementById(fields[i]);
+                    if (el && !el.value && s[fields[i]]) el.value = s[fields[i]];
+                }
+                var cookies = document.getElementById('cookies');
+                if (cookies && !cookies.value && s.cookies) cookies.value = s.cookies;
+                if (s.clearCookies) document.getElementById('clearCookies').checked = true;
+                if (s.pngConvert) document.getElementById('pngConvert').checked = true;
+            } catch(e) {}
+        }
+
+        loadSettings();
+
+        var contentFlags = {
+            includeSourceHtml:              { responseField: 'sourceHtml',              file: 'source.html' },
+            includeCleanHtmlEmbeddedImages: { responseField: 'cleanHtmlEmbeddedImages', file: 'article-embedded.html' },
+            includeCleanHtmlLinkedImages:    { responseField: 'cleanHtmlLinkedImages',   file: 'article-linked.html' },
+            includeCleanHtmlNoImages:        { responseField: 'cleanHtmlNoImages',       file: 'article-no-images.html' },
+            includeMarkdownLinkedImages:     { responseField: 'markdownLinkedImages',    file: 'article-linked.md' },
+            includeMarkdownNoImages:         { responseField: 'markdownNoImages',        file: 'article.md' },
+            includePlainText:               { responseField: 'plainText',               file: 'article.txt' }
+        };
+
         function buildCurl() {
             var url = document.getElementById('url').value.trim();
             var ua  = document.getElementById('userAgent').value.trim();
@@ -427,7 +721,7 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
             var cc  = document.getElementById('clearCookies').checked;
             var png = document.getElementById('pngConvert').checked;
 
-            var body = { url: url || 'https://example.com/article', includeCleanHtmlEmbeddedImages: true, includePlainText: false, includeMarkdownNoImages: false };
+            var body = { url: url || 'https://example.com/article' };
             if (ua)  body.userAgent = ua;
             if (ref) body.referer = ref;
             if (cc)  body.clearCookies = true;
@@ -435,14 +729,56 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
             if (ck) {
                 var cookies = ck.split('\n').map(function(line) {
                     var eq = line.indexOf('=');
-                    if (eq <= 0) return null; // skip lines with no '=' or empty name
+                    if (eq <= 0) return null;
                     return { name: line.substring(0, eq).trim(), value: line.substring(eq + 1).trim() };
                 }).filter(Boolean);
                 if (cookies.length > 0) body.cookies = cookies;
             }
 
+            var engine = document.getElementById('curl_engine').value.trim();
+            if (engine && engine !== 'smartreader') body.engine = engine;
+            var timeout = document.getElementById('curl_timeoutMs').value.trim();
+            if (timeout) body.timeoutMs = parseInt(timeout);
+            var stabilization = document.getElementById('curl_stabilizationMs').value.trim();
+            if (stabilization) body.stabilizationMs = parseInt(stabilization);
+            var unicode = document.getElementById('curl_unicodeNormalization').value;
+            if (unicode !== 'preserve') body.unicodeNormalization = unicode;
+
+            var selectedOutputs = [];
+            for (var key in contentFlags) {
+                var el = document.getElementById('curl_' + key);
+                if (el) {
+                    body[key] = el.checked;
+                    if (el.checked) selectedOutputs.push(contentFlags[key]);
+                }
+            }
+
+            var linkFlags = ['includeAllLinksInPage', 'includeAllLinksMedia', 'includeAllLinksAssets'];
+            for (var i = 0; i < linkFlags.length; i++) {
+                var el = document.getElementById('curl_' + linkFlags[i]);
+                if (el && el.checked) body[linkFlags[i]] = true;
+            }
+
+            var imageFlags = ['includeAllInPageImages', 'includeAllOutOfPageImages', 'imageLinkRewrite'];
+            for (var i = 0; i < imageFlags.length; i++) {
+                var el = document.getElementById('curl_' + imageFlags[i]);
+                if (el && el.checked) body[imageFlags[i]] = true;
+            }
+
+            var debug = document.getElementById('curl_includeDebugInfo');
+            if (debug && debug.checked) body.includeDebugInfo = true;
+
             var json = JSON.stringify(body, null, 2);
             var cmd = "curl -X POST http://localhost:8080/process \\\n  -H \"Content-Type: application/json\" \\\n  -d '" + json + "'";
+
+            if (selectedOutputs.length > 0) {
+                cmd += " \\\n  -o response.json";
+                cmd += "\n\n# Save individual outputs to files:";
+                for (var i = 0; i < selectedOutputs.length; i++) {
+                    cmd += "\njq -r '." + selectedOutputs[i].responseField + "' response.json > " + selectedOutputs[i].file;
+                }
+            }
+
             document.getElementById('curlOutput').value = cmd;
         }
 
@@ -452,8 +788,76 @@ static string LiveModeHtml(string? errorMessage = null, string? userAgentValue =
         ['clearCookies','pngConvert'].forEach(function(id) {
             document.getElementById(id).addEventListener('change', buildCurl);
         });
+        var curlInputs = document.querySelectorAll('.curl-options input, .curl-options select');
+        for (var i = 0; i < curlInputs.length; i++) {
+            curlInputs[i].addEventListener(curlInputs[i].type === 'checkbox' ? 'change' : 'input', buildCurl);
+        }
 
         buildCurl();
+
+        function logMessage(msg, cls) {
+            var con = document.getElementById('consoleOutput');
+            var line = document.createElement('div');
+            line.className = 'log-line' + (cls ? ' ' + cls : '');
+            line.textContent = msg;
+            con.appendChild(line);
+            con.scrollTop = con.scrollHeight;
+        }
+
+        var form = document.getElementById('distillateForm');
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveSettings();
+            document.getElementById('consoleOutput').innerHTML = '';
+            var ts = new Date().toISOString().substring(11, 23);
+            logMessage('[' + ts + '] Starting extraction...');
+
+            var formData = new FormData(form);
+            var params = new URLSearchParams(formData).toString();
+            var btn = document.getElementById('extractBtn');
+            btn.disabled = true;
+            btn.textContent = 'Processing…';
+
+            var done = false;
+            var source = new EventSource('/live/events?' + params);
+
+            source.addEventListener('log', function(e) {
+                logMessage(e.data);
+            });
+
+            source.addEventListener('fail', function(e) {
+                done = true;
+                logMessage('ERROR: ' + e.data, 'log-error');
+                source.close();
+                btn.disabled = false;
+                btn.textContent = 'Extract';
+            });
+
+            source.addEventListener('result', function(e) {
+                done = true;
+                logMessage('[' + new Date().toISOString().substring(11, 23) + '] Loading result…', 'log-success');
+                source.close();
+                try {
+                    var html = atob(e.data);
+                    document.open();
+                    document.write(html);
+                    document.close();
+                } catch(err) {
+                    logMessage('ERROR: Failed to load result — ' + err.message, 'log-error');
+                    btn.disabled = false;
+                    btn.textContent = 'Extract';
+                }
+            });
+
+            source.onerror = function() {
+                if (!done) {
+                    logMessage('[' + new Date().toISOString().substring(11, 23) + '] Connection error', 'log-error');
+                }
+                source.close();
+                btn.disabled = false;
+                btn.textContent = 'Extract';
+            };
+        });
     })();
     </script>
 </body>
