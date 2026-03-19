@@ -314,15 +314,16 @@ Live mode provides an interactive dark-themed web UI for browser-based usage. Wh
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | / | HTML page with a URL input form and advanced options |
+| GET | / | HTML page with a URL input form, curl builder, and console log |
 | GET | /health | Health check (JSON, same as REST mode) |
 | GET | /live?url=\<encoded-url\> | Process a URL and return the reader-view HTML with embedded images |
+| GET | /live/events?url=\<encoded-url\> | Server-Sent Events stream providing real-time processing log |
 
 #### `GET /`
 
-Returns an HTML page containing a form with a URL input field and advanced options (collapsible). The form submits via `GET` to `/live`, constructing the query string automatically.
+Returns an HTML page with a two-column layout. The left column contains a URL input form and advanced options (collapsible). The right column contains a curl command builder with all REST API options. Below both columns is a console output panel that displays real-time processing logs.
 
-**Form fields:**
+**Form fields (left column):**
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
@@ -333,7 +334,17 @@ Returns an HTML page containing a form with a URL input field and advanced optio
 | clearCookies | checkbox | Disable cookie storage for this request |
 | pngConvert | checkbox | Convert all fetched images to PNG |
 
-The page also includes a read-only textarea that displays the equivalent `curl` command for the REST API (`POST /process`), updating in real time as form fields change. This serves as a testing companion for the REST interface.
+**Curl builder (right column):**
+
+The curl builder displays the equivalent `curl` command for the REST API (`POST /process`), updating in real time as form fields and curl-only options change. It includes controls for **all** `ProcessRequest` fields — including content output flags, link/image extraction flags, processing options (engine, timeoutMs, stabilizationMs, unicodeNormalization), and debug options — enabling construction of any valid REST API request. When multiple content outputs are selected, the generated command includes `-o response.json` and `jq` commands to extract each output to a separate file.
+
+**Console output panel:**
+
+When the Extract button is clicked, the form submission is intercepted by JavaScript, which opens a Server-Sent Events connection to `/live/events`. Processing log messages are displayed in real time in the console panel. On successful completion, the extracted article is rendered directly in the browser.
+
+**Settings persistence:**
+
+Form field values are saved to `localStorage` on submission and restored on page load, so settings are remembered when navigating back from a result page via the "← New extraction" link.
 
 #### `GET /live?url=<encoded-url>`
 
@@ -357,6 +368,18 @@ On success, the response is a full HTML page containing:
 * Processing time metadata
 
 On failure, the response is the input form page with an error message and all previously entered field values preserved.
+
+#### `GET /live/events?url=<encoded-url>`
+
+Server-Sent Events endpoint that streams real-time processing log messages. Accepts the same query parameters as `/live`. The JavaScript on the form page uses `EventSource` to connect to this endpoint when the Extract button is clicked.
+
+**Event types:**
+
+| Event | Description |
+| ----- | ----------- |
+| `log` | Timestamped processing log message (e.g. validation, slot acquisition, extraction progress) |
+| `fail` | Terminal error event with error message; client should close the connection |
+| `result` | Terminal success event; data is the base64-encoded result HTML page |
 
 ---
 

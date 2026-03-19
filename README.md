@@ -66,11 +66,12 @@ MODE=live dotnet run --project src/Distillate.Web
 docker run -e MODE=live -p 8080:8080 distillate-web:release
 ```
 
-- `GET /` — Web page with a URL input form and advanced options (user-agent, referer, cookies, clear cookies, PNG conversion)
+- `GET /` — Two-column web page: URL input form with advanced options on the left, curl command builder (all REST API fields) on the right, and a real-time console log panel below
 - `GET /health` — Health check (JSON)
 - `GET /live?url=<encoded-url>` — Directly extract and display reader view for a URL (form submissions also use this pattern)
+- `GET /live/events?url=<encoded-url>` — Server-Sent Events stream for real-time processing log output
 
-The form includes a read-only textarea that generates the equivalent `curl` command for the REST API, making it a convenient testing companion for `POST /process`.
+The curl builder includes controls for **all** `ProcessRequest` fields and generates `jq` commands to save multiple outputs to separate files. Form settings are persisted to `localStorage` so they are restored when navigating back from a result page.
 
 Users can activate the live view in two ways:
 1. **Form**: Navigate to `http://localhost:8080/` and enter a URL in the input box

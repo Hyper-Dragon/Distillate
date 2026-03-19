@@ -197,6 +197,204 @@ public class LiveModeTests : IClassFixture<LiveModeTests.LiveModeFactory>
         Assert.Contains("token=xyz", body);
     }
 
+    // --- Console panel tests ---
+
+    [Fact]
+    public async Task Root_InLiveMode_ContainsConsoleSection()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("id=\"consoleSection\"", body);
+        Assert.Contains("id=\"consoleOutput\"", body);
+        Assert.Contains("Console Output", body);
+        Assert.Contains("console-output", body);
+    }
+
+    // --- Two-column layout tests ---
+
+    [Fact]
+    public async Task Root_InLiveMode_HasTwoColumnLayout()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("main-content", body);
+        Assert.Contains("left-column", body);
+        Assert.Contains("right-column", body);
+        Assert.Contains("grid-template-columns", body);
+    }
+
+    // --- Extended curl builder tests ---
+
+    [Fact]
+    public async Task Root_InLiveMode_CurlBuilderHasAllContentFlags()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("id=\"curl_includeSourceHtml\"", body);
+        Assert.Contains("id=\"curl_includeCleanHtmlEmbeddedImages\"", body);
+        Assert.Contains("id=\"curl_includeCleanHtmlLinkedImages\"", body);
+        Assert.Contains("id=\"curl_includeCleanHtmlNoImages\"", body);
+        Assert.Contains("id=\"curl_includeMarkdownLinkedImages\"", body);
+        Assert.Contains("id=\"curl_includeMarkdownNoImages\"", body);
+        Assert.Contains("id=\"curl_includePlainText\"", body);
+    }
+
+    [Fact]
+    public async Task Root_InLiveMode_CurlBuilderHasLinkExtractionFlags()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("id=\"curl_includeAllLinksInPage\"", body);
+        Assert.Contains("id=\"curl_includeAllLinksMedia\"", body);
+        Assert.Contains("id=\"curl_includeAllLinksAssets\"", body);
+    }
+
+    [Fact]
+    public async Task Root_InLiveMode_CurlBuilderHasImageFlags()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("id=\"curl_includeAllInPageImages\"", body);
+        Assert.Contains("id=\"curl_includeAllOutOfPageImages\"", body);
+        Assert.Contains("id=\"curl_imageLinkRewrite\"", body);
+    }
+
+    [Fact]
+    public async Task Root_InLiveMode_CurlBuilderHasProcessingOptions()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("id=\"curl_engine\"", body);
+        Assert.Contains("id=\"curl_timeoutMs\"", body);
+        Assert.Contains("id=\"curl_stabilizationMs\"", body);
+        Assert.Contains("id=\"curl_unicodeNormalization\"", body);
+        Assert.Contains("id=\"curl_includeDebugInfo\"", body);
+    }
+
+    [Fact]
+    public async Task Root_InLiveMode_CurlBuilderHasUnicodeOptions()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("value=\"preserve\"", body);
+        Assert.Contains("value=\"ascii\"", body);
+        Assert.Contains("value=\"latex\"", body);
+    }
+
+    // --- Settings persistence (localStorage) tests ---
+
+    [Fact]
+    public async Task Root_InLiveMode_HasLocalStoragePersistenceScript()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("distillate-settings", body);
+        Assert.Contains("localStorage", body);
+        Assert.Contains("saveSettings", body);
+        Assert.Contains("loadSettings", body);
+    }
+
+    // --- SSE endpoint tests ---
+
+    [Fact]
+    public async Task LiveEvents_NoUrl_ReturnsSseStream()
+    {
+        var response = await _client.GetAsync("/live/events");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task LiveEvents_NoUrl_ContainsFailEvent()
+    {
+        var response = await _client.GetAsync("/live/events");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("event: fail", body);
+        Assert.Contains("Please enter a URL", body);
+    }
+
+    [Fact]
+    public async Task LiveEvents_EmptyUrl_ContainsFailEvent()
+    {
+        var response = await _client.GetAsync("/live/events?url=");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("event: fail", body);
+        Assert.Contains("Please enter a URL", body);
+    }
+
+    [Fact]
+    public async Task LiveEvents_UrlTooLong_ContainsFailEvent()
+    {
+        var longUrl = "https://example.com/" + new string('a', 3000);
+        var response = await _client.GetAsync($"/live/events?url={Uri.EscapeDataString(longUrl)}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("event: fail", body);
+        Assert.Contains("exceeds maximum length", body);
+    }
+
+    [Fact]
+    public async Task LiveEvents_ValidUrl_ContainsLogEvents()
+    {
+        var response = await _client.GetAsync("/live/events?url=https://this-domain-does-not-exist.invalid/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("event: log", body);
+        Assert.Contains("Validating parameters", body);
+    }
+
+    [Fact]
+    public async Task LiveEvents_InvalidUrl_StreamsLogThenError()
+    {
+        var response = await _client.GetAsync("/live/events?url=not-a-valid-url");
+        var body = await response.Content.ReadAsStringAsync();
+
+        // Should contain log events followed by a fail event
+        Assert.Contains("event: log", body);
+        // The URL will fail during processing, producing either a fail or error log
+        Assert.True(body.Contains("event: fail") || body.Contains("ERROR"), "Expected a fail event or ERROR log for invalid URL");
+    }
+
+    // --- Form submit interception (EventSource) test ---
+
+    [Fact]
+    public async Task Root_InLiveMode_HasEventSourceScript()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains("EventSource", body);
+        Assert.Contains("/live/events", body);
+        Assert.Contains("extractBtn", body);
+    }
+
+    // --- Curl file save commands test ---
+
+    [Fact]
+    public async Task Root_InLiveMode_CurlBuilderHasFileSaveLogic()
+    {
+        var response = await _client.GetAsync("/");
+        var body = await response.Content.ReadAsStringAsync();
+
+        // The JS should contain file output mappings
+        Assert.Contains("response.json", body);
+        Assert.Contains("article-embedded.html", body);
+        Assert.Contains("article.md", body);
+        Assert.Contains("article.txt", body);
+        Assert.Contains("responseField", body);
+    }
+
     public class LiveModeFactory : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
