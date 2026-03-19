@@ -219,8 +219,8 @@ if (options.IsLiveMode)
 
         async Task SendSseEvent(string eventType, string data)
         {
-            var sanitised = data.Replace("\n", " ").Replace("\r", "");
-            await context.Response.WriteAsync($"event: {eventType}\ndata: {sanitised}\n\n", context.RequestAborted);
+            var sanitized = data.Replace("\n", " ").Replace("\r", "");
+            await context.Response.WriteAsync($"event: {eventType}\ndata: {sanitized}\n\n", context.RequestAborted);
             await context.Response.Body.FlushAsync(context.RequestAborted);
         }
 
