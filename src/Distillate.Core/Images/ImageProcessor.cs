@@ -48,6 +48,11 @@ public class ImageProcessor
     // rather than blocking the entire processing pipeline.
     private const int PerImageTimeoutMs = 10_000;
 
+    // Maximum output heights applied when pngConversionRequired is true.
+    // Portrait images (height > width) are capped at 1080 px; landscape at 720 px.
+    private const int PngPortraitMaxHeight  = 1080;
+    private const int PngLandscapeMaxHeight = 720;
+
     public ImageProcessor(ILogger<ImageProcessor> logger, HttpClient httpClient, long maxEmbedBytes)
     {
         _logger = logger;
@@ -360,9 +365,49 @@ public class ImageProcessor
         if (skBitmap == null)
             return inputBytes;
 
-        using var image = SKImage.FromBitmap(skBitmap);
-        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-        return data.ToArray();
+        var (targetWidth, targetHeight) = CalculatePngResizeDimensions(skBitmap.Width, skBitmap.Height);
+
+        SKBitmap bitmapToEncode = skBitmap;
+        SKBitmap? resized = null;
+        try
+        {
+            if (targetWidth != skBitmap.Width || targetHeight != skBitmap.Height)
+            {
+                resized = skBitmap.Resize(
+                    new SKImageInfo(targetWidth, targetHeight),
+                    new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+                if (resized != null)
+                    bitmapToEncode = resized;
+            }
+
+            using var image = SKImage.FromBitmap(bitmapToEncode);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            return data.ToArray();
+        }
+        finally
+        {
+            resized?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Returns the target (width, height) after applying PNG resize limits.
+    /// Portrait images (height &gt; width) are capped at <see cref="PngPortraitMaxHeight"/> px;
+    /// landscape images at <see cref="PngLandscapeMaxHeight"/> px. Aspect ratio is preserved.
+    /// </summary>
+    internal static (int Width, int Height) CalculatePngResizeDimensions(int originalWidth, int originalHeight)
+    {
+        if (originalWidth <= 0 || originalHeight <= 0)
+            return (originalWidth, originalHeight);
+
+        int maxHeight = originalHeight > originalWidth ? PngPortraitMaxHeight : PngLandscapeMaxHeight;
+
+        if (originalHeight <= maxHeight)
+            return (originalWidth, originalHeight);
+
+        var scale = (float)maxHeight / originalHeight;
+        var newWidth = (int)Math.Round(originalWidth * scale);
+        return (newWidth, maxHeight);
     }
 
     private static void StripImages(IDocument document)

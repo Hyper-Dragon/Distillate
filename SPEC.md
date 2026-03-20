@@ -179,7 +179,7 @@ POST /process
 | includeAllInPageImages | bool | false | Images present in the reader-extracted clean HTML |
 | includeAllOutOfPageImages | bool | false | Images found in source HTML but absent from clean HTML |
 | imageLinkRewrite | bool | false | Rewrite img src in linked outputs to local filenames. Implicitly forces includeAllInPageImages=true |
-| pngConversionRequired | bool | false | Convert all fetched images to PNG via SkiaSharp. When false, images are returned in their original format |
+| pngConversionRequired | bool | false | Convert all fetched images to PNG via SkiaSharp. Images are also resized: portrait images (height > width) are capped at 1080 px height; landscape images at 720 px height. Aspect ratio is preserved. When false, images are returned in their original format |
 | unicodeNormalization | string | "preserve" | Controls how Unicode typographic characters (smart quotes, dashes, ellipsis) are handled in text outputs. `"preserve"` keeps them as-is; `"ascii"` converts to plain ASCII; `"latex"` converts to LaTeX-idiomatic sequences (en-dash → `--`, em-dash → `---`) |
 
 #### Implicit Behaviour Rules
@@ -197,7 +197,7 @@ POST /process
 
 The `localName` field on each `ImageEntry` is the authoritative filename. Downstream tooling is responsible for saving files using that name.
 
-**PNG conversion:** Uses SkiaSharp. `System.Drawing.Common` is explicitly excluded (GDI+ is unavailable on Linux ARM).
+**PNG conversion:** Uses SkiaSharp. `System.Drawing.Common` is explicitly excluded (GDI+ is unavailable on Linux ARM). When `pngConversionRequired=true`, images are resized before encoding: portrait images (height > width) are capped at a maximum height of **1080 px**; landscape images (width ≥ height) are capped at **720 px**. Images already within the limit are not upscaled. Aspect ratio is always preserved.
 
 #### Response
 

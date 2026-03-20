@@ -132,7 +132,7 @@ Process a URL and extract reader view content.
 | `includeAllInPageImages` | `false` | Images present in the extracted article HTML |
 | `includeAllOutOfPageImages` | `false` | Images in source HTML but absent from article |
 | `imageLinkRewrite` | `false` | Rewrite `src` attributes to local filenames (implies `includeAllInPageImages`) |
-| `pngConversionRequired` | `false` | Convert all fetched images to PNG via SkiaSharp |
+| `pngConversionRequired` | `false` | Convert all fetched images to PNG via SkiaSharp. Portrait images (height > width) are capped at 1080 px height; landscape images at 720 px height. Aspect ratio is preserved |
 | `unicodeNormalization` | `"preserve"` | Unicode punctuation handling: `"preserve"` (default, keeps smart quotes/dashes), `"ascii"` (converts to plain ASCII), or `"latex"` (LaTeX-idiomatic sequences) |
 
 **Example request:**
