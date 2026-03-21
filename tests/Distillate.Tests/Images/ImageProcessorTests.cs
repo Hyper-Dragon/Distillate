@@ -1,9 +1,94 @@
 using Distillate.Core.Images;
+using Microsoft.Extensions.Logging.Abstractions;
+using SkiaSharp;
 
 namespace Distillate.Tests.Images;
 
 public class ImageProcessorTests
 {
+    // ---- Helpers ----
+
+    /// <summary>Creates a minimal JPEG byte array of the given dimensions using SkiaSharp.</summary>
+    private static byte[] MakeJpeg(int width, int height)
+    {
+        using var bmp = new SKBitmap(width, height);
+        using var canvas = new SKCanvas(bmp);
+        canvas.Clear(SKColors.CornflowerBlue);
+        using var data = bmp.Encode(SKEncodedImageFormat.Jpeg, 90);
+        return data.ToArray();
+    }
+
+    /// <summary>Returns true when the byte array starts with the PNG magic number (0x89 0x50 0x4E 0x47).</summary>
+    private static bool IsPng(byte[] bytes) =>
+        bytes.Length >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+
+    /// <summary>Creates an <see cref="ImageProcessor"/> backed by a no-op HTTP client (not needed for ConvertToPng).</summary>
+    private static ImageProcessor MakeProcessor() =>
+        new(NullLogger<ImageProcessor>.Instance, new HttpClient(), maxEmbedBytes: 10 * 1024 * 1024);
+
+    // --- ConvertToPng ---
+
+    [Fact]
+    public void ConvertToPng_JpegInput_ReturnsPngBytes()
+    {
+        var processor = MakeProcessor();
+        var jpegBytes = MakeJpeg(100, 100);
+
+        var result = processor.ConvertToPng(jpegBytes);
+
+        Assert.True(IsPng(result), "Expected PNG magic bytes in output");
+    }
+
+    [Fact]
+    public void ConvertToPng_LargeJpeg_ReturnsPngWithResizedDimensions()
+    {
+        // 1920 × 1080 landscape — exceeds the 720 px landscape limit
+        var processor = MakeProcessor();
+        var jpegBytes = MakeJpeg(1920, 1080);
+
+        var result = processor.ConvertToPng(jpegBytes);
+
+        Assert.True(IsPng(result), "Expected PNG magic bytes in output");
+
+        using var decoded = SKBitmap.Decode(result);
+        Assert.NotNull(decoded);
+        Assert.Equal(720, decoded.Height);
+        Assert.Equal(1280, decoded.Width);
+    }
+
+    [Fact]
+    public void ConvertToPng_SmallJpeg_ReturnsPngWithOriginalDimensions()
+    {
+        // 320 × 240 landscape — within the 720 px landscape limit, no resize expected
+        var processor = MakeProcessor();
+        var jpegBytes = MakeJpeg(320, 240);
+
+        var result = processor.ConvertToPng(jpegBytes);
+
+        Assert.True(IsPng(result), "Expected PNG magic bytes in output");
+
+        using var decoded = SKBitmap.Decode(result);
+        Assert.NotNull(decoded);
+        Assert.Equal(320, decoded.Width);
+        Assert.Equal(240, decoded.Height);
+    }
+
+    [Fact]
+    public void ConvertToPng_PortraitJpegAboveLimit_ReturnsPngWithResizedHeight()
+    {
+        // 600 × 2160 portrait — exceeds the 1080 px portrait limit
+        var processor = MakeProcessor();
+        var jpegBytes = MakeJpeg(600, 2160);
+
+        var result = processor.ConvertToPng(jpegBytes);
+
+        Assert.True(IsPng(result), "Expected PNG magic bytes in output");
+
+        using var decoded = SKBitmap.Decode(result);
+        Assert.NotNull(decoded);
+        Assert.Equal(1080, decoded.Height);
+    }
+
     // --- CalculatePngResizeDimensions ---
 
     [Fact]
