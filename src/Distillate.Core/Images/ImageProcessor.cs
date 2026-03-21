@@ -359,35 +359,36 @@ public class ImageProcessor
         }
     }
 
-    private byte[] ConvertToPng(byte[] inputBytes)
+    internal byte[] ConvertToPng(byte[] inputBytes)
     {
         using var skBitmap = SKBitmap.Decode(inputBytes);
         if (skBitmap == null)
             return inputBytes;
 
+        // Step 1: Create the PNG first using the original working approach.
+        // This guarantees a valid PNG regardless of source format.
+        using var sourceImage = SKImage.FromBitmap(skBitmap);
+        using var pngData = sourceImage.Encode(SKEncodedImageFormat.Png, 100);
+        if (pngData == null)
+            return inputBytes;
+
+        // Step 2: Resize the PNG if the source dimensions exceed the limits.
         var (targetWidth, targetHeight) = CalculatePngResizeDimensions(skBitmap.Width, skBitmap.Height);
+        if (targetWidth == skBitmap.Width && targetHeight == skBitmap.Height)
+            return pngData.ToArray();   // Already within limits — return the PNG as-is
 
-        SKBitmap bitmapToEncode = skBitmap;
-        SKBitmap? resized = null;
-        try
-        {
-            if (targetWidth != skBitmap.Width || targetHeight != skBitmap.Height)
-            {
-                resized = skBitmap.Resize(
-                    new SKImageInfo(targetWidth, targetHeight),
-                    new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
-                if (resized != null)
-                    bitmapToEncode = resized;
-            }
+        using var resizedBitmap = skBitmap.Resize(
+            new SKImageInfo(targetWidth, targetHeight),
+            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+        if (resizedBitmap == null)
+            return pngData.ToArray();   // Resize failed — return the unresized PNG
 
-            using var image = SKImage.FromBitmap(bitmapToEncode);
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return data.ToArray();
-        }
-        finally
-        {
-            resized?.Dispose();
-        }
+        using var resizedImage = SKImage.FromBitmap(resizedBitmap);
+        if (resizedImage == null)
+            return pngData.ToArray();
+
+        using var resizedData = resizedImage.Encode(SKEncodedImageFormat.Png, 100);
+        return resizedData?.ToArray() ?? pngData.ToArray();
     }
 
     /// <summary>
