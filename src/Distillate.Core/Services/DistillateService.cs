@@ -14,6 +14,16 @@ namespace Distillate.Core.Services;
 
 public class DistillateService : IDistillateService
 {
+    // Injected into every page when clearCookies=true to make JS cookie APIs appear disabled
+    private const string DisableCookiesScript = @"
+        Object.defineProperty(navigator, 'cookieEnabled', { get: () => false, configurable: true });
+        Object.defineProperty(document, 'cookie', {
+            get: () => '',
+            set: () => {},
+            configurable: true
+        });
+    ";
+
     private readonly ILogger<DistillateService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly DistillateOptions _options;
@@ -73,7 +83,7 @@ public class DistillateService : IDistillateService
                 request.Url, request.Engine, traceId);
 
             var browserTimer = Stopwatch.StartNew();
-            var sourceHtml = await FetchWithBrowserAsync(uri, effectiveUserAgent, effectiveStabilization, request.Cookies, request.Referer, linkedCts.Token);
+            var sourceHtml = await FetchWithBrowserAsync(uri, effectiveUserAgent, effectiveStabilization, request.Cookies, request.Referer, request.ClearCookies, linkedCts.Token);
             browserTimer.Stop();
             stages?.Add(new StageTiming { Stage = "BrowserFetch", Ms = browserTimer.Elapsed.TotalMilliseconds });
             debugSourceHtmlBytes = sourceHtml?.Length ?? 0;
@@ -373,7 +383,7 @@ public class DistillateService : IDistillateService
         }
     }
 
-    private async Task<string?> FetchWithBrowserAsync(Uri uri, string userAgent, int stabilizationMs, CookieEntry[]? cookies, string? referer, CancellationToken cancellationToken)
+    private async Task<string?> FetchWithBrowserAsync(Uri uri, string userAgent, int stabilizationMs, CookieEntry[]? cookies, string? referer, bool clearCookies, CancellationToken cancellationToken)
     {
         IPlaywright? playwright = null;
         IBrowser? browser = null;
@@ -410,7 +420,27 @@ public class DistillateService : IDistillateService
 
             context = await browser.NewContextAsync(contextOptions);
 
-            if (cookies != null && cookies.Length > 0)
+            if (clearCookies)
+            {
+                _logger.LogDebug("Cookie blocking enabled for {Url}: stripping Set-Cookie response headers and disabling JS cookie APIs", uri);
+
+                // Intercept every response to strip Set-Cookie headers so the browser stores no cookies.
+                // This re-fetches each response via route.FetchAsync, which is the only Playwright mechanism
+                // for modifying response headers. The overhead is acceptable because clearCookies is
+                // opt-in and not the default path.
+                await context.RouteAsync("**/*", async route =>
+                {
+                    var response = await route.FetchAsync();
+                    var headers = response.Headers
+                        .Where(kvp => !kvp.Key.Equals("set-cookie", StringComparison.OrdinalIgnoreCase))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+                    await route.FulfillAsync(new RouteFulfillOptions { Response = response, Headers = headers });
+                });
+
+                // Override JS cookie APIs so pages see cookies as disabled
+                await context.AddInitScriptAsync(DisableCookiesScript);
+            }
+            else if (cookies != null && cookies.Length > 0)
             {
                 var playwrightCookies = cookies.Select(c => new Cookie
                 {

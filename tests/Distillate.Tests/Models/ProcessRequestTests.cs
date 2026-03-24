@@ -17,6 +17,7 @@ public class ProcessRequestTests
         Assert.Null(request.UserAgent);
         Assert.Null(request.Referer);
         Assert.Null(request.Cookies);
+        Assert.False(request.ClearCookies);
 
         // Content flags
         Assert.False(request.IncludeSourceHtml);
